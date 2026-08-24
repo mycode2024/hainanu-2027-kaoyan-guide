@@ -1,0 +1,9 @@
+# Local runtime state: cache, backup, logs and launcher PID files.
+data/
+
+node_modules/
+coverage/
+npm-debug.log*
+
+.DS_Store
+Thumbs.db

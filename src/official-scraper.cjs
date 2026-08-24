@@ -1,0 +1,420 @@
+const crypto = require('node:crypto');
+
+const ENTITY_MAP = {
+  amp: '&',
+  apos: "'",
+  gt: '>',
+  lt: '<',
+  nbsp: ' ',
+  quot: '"'
+};
+
+function decodeHtmlEntities(value) {
+  return String(value || '').replace(/&(#x?[0-9a-f]+|[a-z]+);/gi, (entity, code) => {
+    if (code[0] === '#') {
+      const hexadecimal = code[1]?.toLowerCase() === 'x';
+      const number = Number.parseInt(code.slice(hexadecimal ? 2 : 1), hexadecimal ? 16 : 10);
+      return Number.isInteger(number) && number >= 0 && number <= 0x10FFFF
+        ? String.fromCodePoint(number)
+        : entity;
+    }
+    return ENTITY_MAP[code.toLowerCase()] ?? entity;
+  });
+}
+
+function cleanText(value) {
+  return decodeHtmlEntities(String(value || '').replace(/<[^>]*>/g, ' '))
+    .replace(/[\u200B-\u200D\uFEFF]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function isOfficialHainanUniversityUrl(value) {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' && (
+      url.hostname === 'hainanu.edu.cn' || url.hostname.endsWith('.hainanu.edu.cn')
+    );
+  } catch {
+    return false;
+  }
+}
+
+function isAllowedOfficialUrl(value, source) {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== 'https:') return false;
+    const configuredHosts = Array.isArray(source?.allowedHosts) && source.allowedHosts.length
+      ? source.allowedHosts
+      : [new URL(source?.url).hostname];
+    return configuredHosts.some((host) => url.hostname === host || url.hostname.endsWith(`.${host}`));
+  } catch {
+    return false;
+  }
+}
+
+function categorizeTitle(title, source) {
+  if (source?.context === 'national-policy') return '国家政策';
+  if (/初试科目|考试科目|科目调整/.test(title)) return '初试科目';
+  if (/招生简章|招生章程|专业目录|考试大纲/.test(title)) return '简章目录';
+  if (/网上报名|预报名|报名公告|网上确认|报考点/.test(title)) return '报名确认';
+  if (/准考资格|报考材料|准考证/.test(title)) return '资格准考';
+  if (/成绩|分数线|排名查询/.test(title)) return '成绩分数线';
+  if (/复试|调剂|拟录取|录取/.test(title)) return '复试录取';
+  if (/推免|推荐免试/.test(title)) return '推免';
+  return '招生动态';
+}
+
+function isRelevantTitle(title, source) {
+  if (source?.context === 'national-policy') {
+    if (/培养(?:工作|管理)?/.test(title)) return false;
+    if (/博士/.test(title) && !/硕士/.test(title)) return false;
+    return /全国硕士研究生招生|硕士研究生.*招生.*工作|研究生招生考试|研考/.test(title);
+  }
+  if (/培养(?:工作|管理)?/.test(title)) return false;
+  const explicitlyOtherLevel = /博士|本科|学士|高考/.test(title) && !/硕士/.test(title);
+  if (explicitlyOtherLevel) return false;
+  const graduateContext = /硕士|考研|研考|研究生招生|全国硕士研究生招生考试/.test(title);
+  const actionable = /招生|简章|章程|专业目录|考试|科目|大纲|报名|确认|报考|考点|准考|成绩|分数线|复试|调剂|录取|推免|材料/.test(title);
+  const shortActionPatterns = {
+    'graduate-admissions-list': /招生简章|招生章程|专业目录|考试大纲|初试科目|考试科目|网上报名|预报名|报名公告|网上确认|报考点|准考资格|报考材料|准考证|成绩|分数线|排名查询|复试|调剂|拟录取|录取|推免|推荐免试/,
+    'hnu-master': /招生简章|招生章程|专业目录|考试大纲|初试科目|考试科目|网上报名|预报名|报名公告|网上确认|报考点|准考资格|报考材料|准考证|成绩|分数线|排名查询|复试|调剂|拟录取|录取|推免|推荐免试/,
+    'hnu-home': /网上报名|预报名|报名公告|网上确认|报考点|考点|准考资格|准考证|研考/,
+    'hnu-computer': /招生简章|招生章程|专业目录|考试大纲|初试科目|考试科目|成绩|分数线|排名查询|复试|调剂|拟录取|录取|推免|推荐免试/
+  };
+  const contextAction = shortActionPatterns[source?.context];
+  if (!actionable) return false;
+  return graduateContext || Boolean(contextAction?.test(title));
+}
+
+function makeHash(value) {
+  return crypto.createHash('sha1').update(value).digest('hex').slice(0, 16);
+}
+
+function makeId(source, url) {
+  const sourceIdentity = source?.id || source?.name || source?.url || '';
+  return makeHash(`${sourceIdentity}\n${url}`);
+}
+
+function makeContentHash(title, category, date) {
+  return makeHash(`${title}\n${category}\n${date}`);
+}
+
+function isValidCalendarDate(year, month, day) {
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
+}
+
+function getShanghaiYearAndMonth(checkedAt) {
+  const checkedDate = new Date(checkedAt);
+  if (!Number.isFinite(checkedDate.getTime())) return null;
+  const values = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit'
+  }).formatToParts(checkedDate);
+  const year = Number(values.find((part) => part.type === 'year')?.value);
+  const month = Number(values.find((part) => part.type === 'month')?.value);
+  return Number.isFinite(year) && Number.isFinite(month) ? { year, month } : null;
+}
+
+function readHtmlTag(source, start) {
+  if (source[start] !== '<') return null;
+  let index = start + 1;
+  let closing = false;
+  if (source[index] === '/') {
+    closing = true;
+    index += 1;
+  }
+  while (/\s/.test(source[index] || '')) index += 1;
+  if (!/[A-Za-z]/.test(source[index] || '')) return null;
+
+  const nameStart = index;
+  while (/[A-Za-z0-9:-]/.test(source[index] || '')) index += 1;
+  const name = source.slice(nameStart, index).toLowerCase();
+  let quote = null;
+  for (; index < source.length; index += 1) {
+    const character = source[index];
+    if (quote) {
+      if (character === quote) quote = null;
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      quote = character;
+      continue;
+    }
+    if (character === '>') {
+      return {
+        name,
+        closing,
+        selfClosing: !closing && /\/\s*$/.test(source.slice(nameStart, index)),
+        end: index + 1
+      };
+    }
+  }
+  return null;
+}
+
+function findCommentEnd(source, start) {
+  const closingIndex = source.indexOf('-->', start + 4);
+  return closingIndex === -1 ? source.length : closingIndex + 3;
+}
+
+function findRawElementEnd(source, start, name) {
+  let index = start;
+  while (index < source.length) {
+    const tag = readHtmlTag(source, index);
+    if (tag) {
+      if (tag.closing && tag.name === name) return tag.end;
+      index = tag.end;
+    } else {
+      index += 1;
+    }
+  }
+  return source.length;
+}
+
+function findTemplateEnd(source, start) {
+  let depth = 1;
+  let index = start;
+  while (index < source.length) {
+    if (source.startsWith('<!--', index)) {
+      index = findCommentEnd(source, index);
+      continue;
+    }
+    const tag = readHtmlTag(source, index);
+    if (!tag) {
+      index += 1;
+      continue;
+    }
+    if (!tag.closing && !tag.selfClosing && (tag.name === 'script' || tag.name === 'style')) {
+      index = findRawElementEnd(source, tag.end, tag.name);
+      continue;
+    }
+    if (tag.name === 'template') {
+      if (tag.closing) {
+        depth -= 1;
+        if (depth === 0) return tag.end;
+      } else if (!tag.selfClosing) {
+        depth += 1;
+      }
+    }
+    index = tag.end;
+  }
+  return source.length;
+}
+
+function maskRange(output, start, end) {
+  for (let index = start; index < end; index += 1) {
+    if (output[index] !== '\r' && output[index] !== '\n') output[index] = ' ';
+  }
+}
+
+function maskNonVisibleRegions(content) {
+  const source = String(content || '');
+  const output = source.split('');
+  let index = 0;
+
+  while (index < source.length) {
+    if (source.startsWith('<!--', index)) {
+      const end = findCommentEnd(source, index);
+      maskRange(output, index, end);
+      index = end;
+      continue;
+    }
+    const tag = readHtmlTag(source, index);
+    if (!tag) {
+      index += 1;
+      continue;
+    }
+    if (!tag.closing && !tag.selfClosing && (tag.name === 'script' || tag.name === 'style')) {
+      const end = findRawElementEnd(source, tag.end, tag.name);
+      maskRange(output, index, end);
+      index = end;
+      continue;
+    }
+    if (!tag.closing && !tag.selfClosing && tag.name === 'template') {
+      const end = findTemplateEnd(source, tag.end);
+      maskRange(output, index, end);
+      index = end;
+      continue;
+    }
+    index = tag.end;
+  }
+
+  return output.join('');
+}
+
+function extractVisibleText(content) {
+  return cleanText(maskNonVisibleRegions(content));
+}
+
+function extractPublicationDate(content, checkedAt) {
+  const visibleText = extractVisibleText(content);
+  const dateCandidates = [];
+
+  for (const match of visibleText.matchAll(/\b(20\d{2})-((?:0[1-9]|1[0-2]))-((?:0[1-9]|[12]\d|3[01]))\b/g)) {
+    dateCandidates.push({
+      index: match.index,
+      year: Number(match[1]),
+      month: Number(match[2]),
+      day: Number(match[3]),
+      value: `${match[1]}-${match[2]}-${match[3]}`
+    });
+  }
+
+  const checkedDate = getShanghaiYearAndMonth(checkedAt);
+  if (checkedDate) {
+    for (const match of visibleText.matchAll(/\[\s*((?:0[1-9]|1[0-2]))-((?:0[1-9]|[12]\d|3[01]))\s*\]/g)) {
+      const month = Number(match[1]);
+      const year = checkedDate.year - (month > checkedDate.month ? 1 : 0);
+      dateCandidates.push({
+        index: match.index,
+        year,
+        month,
+        day: Number(match[2]),
+        value: `${year}-${match[1]}-${match[2]}`
+      });
+    }
+  }
+
+  return dateCandidates
+    .sort((a, b) => a.index - b.index)
+    .find((candidate) => isValidCalendarDate(candidate.year, candidate.month, candidate.day))?.value ?? null;
+}
+
+function findBalancedElements(html, type) {
+  const document = String(html || '');
+  const scanDocument = maskNonVisibleRegions(document);
+  const tagPattern = new RegExp(`<\\/?${type}\\b[^>]*>`, 'gi');
+  const openElements = [];
+  const elements = [];
+  let tag;
+
+  while ((tag = tagPattern.exec(scanDocument))) {
+    if (/^<\//.test(tag[0])) {
+      const opening = openElements.pop();
+      if (!opening) continue;
+      elements.push({
+        type,
+        start: opening.start,
+        end: tagPattern.lastIndex,
+        content: document.slice(opening.start, tagPattern.lastIndex)
+      });
+    } else if (!/\/\s*>$/.test(tag[0])) {
+      openElements.push({ start: tag.index });
+    }
+  }
+
+  return elements;
+}
+
+function extractAnchors(content) {
+  return [...maskNonVisibleRegions(content).matchAll(/<a\b[^>]*\bhref\s*=\s*(["'])(.*?)\1[^>]*>([\s\S]*?)<\/a>/gi)]
+    .map((match) => ({ href: match[2], titleHtml: match[3] }));
+}
+
+function extractAnnouncementCards(html, checkedAt) {
+  const elements = ['li', 'div']
+    .flatMap((type) => findBalancedElements(html, type))
+    .sort((a, b) => a.start - b.start || b.end - a.end);
+  const candidates = elements
+    .map((element) => {
+      const anchors = extractAnchors(element.content);
+      if (anchors.length !== 1) return null;
+      const date = extractPublicationDate(element.content, checkedAt);
+      return date ? { ...element, anchor: anchors[0], date } : null;
+    })
+    .filter(Boolean);
+
+  return candidates
+    .filter((candidate) => !candidates.some((other) => other !== candidate
+      && other.start >= candidate.start
+      && other.end <= candidate.end))
+    .sort((a, b) => a.start - b.start || a.end - b.end);
+}
+
+function parseOfficialDocument(html, source, checkedAt = new Date().toISOString()) {
+  const candidates = extractAnnouncementCards(html, checkedAt);
+  const diagnostics = {
+    candidateCount: candidates.length,
+    relevantCount: 0,
+    containerTypes: [...new Set(candidates.map((candidate) => candidate.type))]
+  };
+  if (!source || !isAllowedOfficialUrl(source.url, source)) return { updates: [], diagnostics };
+
+  const updatesById = new Map();
+
+  for (const candidate of candidates) {
+    const title = cleanText(candidate.anchor.titleHtml);
+    if (!isRelevantTitle(title, source)) continue;
+
+    let url;
+    try {
+      const resolvedUrl = new URL(decodeHtmlEntities(candidate.anchor.href), source.url);
+      resolvedUrl.hash = '';
+      url = resolvedUrl.href;
+    } catch {
+      continue;
+    }
+    if (!isAllowedOfficialUrl(url, source)) continue;
+
+    const category = categorizeTitle(title, source);
+    const isTarget2027 = /2027|2027年/.test(title);
+    const isImportant = source.context === 'national-policy' || /招生简章|招生章程|专业目录|初试科目|考试科目|考试大纲|网上报名|预报名|报名公告|准考资格|复试|调剂/.test(title);
+
+    const update = {
+      id: makeId(source, url),
+      contentHash: makeContentHash(title, category, candidate.date),
+      title,
+      date: candidate.date,
+      url,
+      source: source.name,
+      sourceId: source.id,
+      category,
+      isTarget2027,
+      isImportant
+    };
+    if (!updatesById.has(update.id)) updatesById.set(update.id, update);
+  }
+
+  const updates = [...updatesById.values()];
+  diagnostics.relevantCount = updates.length;
+  return { updates, diagnostics };
+}
+
+function parseOfficialList(html, source, checkedAt = new Date().toISOString()) {
+  return parseOfficialDocument(html, source, checkedAt).updates;
+}
+
+function mergeAndRankUpdates(updates, limit = 20) {
+  const unique = [];
+  const seenUrls = new Set();
+
+  for (const update of Array.isArray(updates) ? updates : []) {
+    if (!update || !update.url || !update.title) continue;
+    if (seenUrls.has(update.url)) continue;
+    seenUrls.add(update.url);
+    unique.push(update);
+  }
+
+  return unique
+    .sort((a, b) => {
+      if (Boolean(a.isTarget2027) !== Boolean(b.isTarget2027)) return a.isTarget2027 ? -1 : 1;
+      const dateOrder = String(b.date || '').localeCompare(String(a.date || ''), 'zh-CN');
+      if (dateOrder !== 0) return dateOrder;
+      if (Boolean(a.isImportant) !== Boolean(b.isImportant)) return a.isImportant ? -1 : 1;
+      return String(a.title || '').localeCompare(String(b.title || ''), 'zh-CN');
+    })
+    .slice(0, Math.max(0, Number.isFinite(limit) ? limit : 20));
+}
+
+module.exports = {
+  categorizeTitle,
+  cleanText,
+  isAllowedOfficialUrl,
+  isOfficialHainanUniversityUrl,
+  mergeAndRankUpdates,
+  parseOfficialDocument,
+  parseOfficialList
+};

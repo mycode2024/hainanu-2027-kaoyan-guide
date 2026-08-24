@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>390px mobile QA harness</title>
+  <style>
+    html, body { margin: 0; background: #d8e1dc; }
+    iframe { display: block; width: 390px; height: 844px; border: 0; background: #fff; }
+  </style>
+</head>
+<body>
+  <iframe id="mobile" src="/" title="390px 移动端预览"></iframe>
+  <script>
+    document.querySelector('#mobile').addEventListener('load', (event) => {
+      const frame = event.currentTarget;
+      const frameDocument = frame.contentDocument.documentElement;
+      document.body.setAttribute('data-frame-inner-width', String(frame.contentWindow.innerWidth));
+      document.body.setAttribute('data-frame-client-width', String(frameDocument.clientWidth));
+      document.body.setAttribute('data-frame-scroll-width', String(frameDocument.scrollWidth));
+    });
+  </script>
+</body>
+</html>

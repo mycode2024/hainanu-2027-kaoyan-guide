@@ -1,0 +1,794 @@
+(function () {
+  'use strict';
+
+  const DAY_MS = 86_400_000;
+  const STORAGE_KEY = 'hainanu-2027-kaoyan-progress-v1';
+  const LAST_SEEN_UPDATES_KEY = 'hainanu-2027-kaoyan-last-seen-v1';
+
+  const milestones = [
+    { id: 'verify', start: '2026-07-02', end: '2026-09-14' },
+    { id: 'directory', start: '2026-09-15', end: '2026-09-30' },
+    { id: 'preapply', start: '2026-10-10', end: '2026-10-13' },
+    { id: 'apply', start: '2026-10-16', end: '2026-10-27' },
+    { id: 'confirm', start: '2026-10-28', end: '2026-11-15' },
+    { id: 'ticket', start: '2026-12-10', end: '2026-12-18' },
+    { id: 'exam', start: '2026-12-19', end: '2026-12-20' },
+    { id: 'score', start: '2027-02-20', end: '2027-02-28' },
+    { id: 'line', start: '2027-03-01', end: '2027-03-20' },
+    { id: 'retest', start: '2027-03-21', end: '2027-04-15' },
+    { id: 'adjust', start: '2027-04-01', end: '2027-04-30' },
+    { id: 'admit', start: '2027-04-15', end: '2027-05-15' },
+    { id: 'archive', start: '2027-05-01', end: '2027-07-31' },
+    { id: 'enrol', start: '2027-09-01', end: '2027-09-15' }
+  ];
+
+  function toUtcDay(value) {
+    return Date.parse(`${value}T00:00:00Z`);
+  }
+
+  function getTimelineState(items, today) {
+    const now = toUtcDay(today);
+    const active = items
+      .filter((item) => now >= toUtcDay(item.start) && now <= toUtcDay(item.end))
+      .sort((a, b) => toUtcDay(a.start) - toUtcDay(b.start));
+    const next = items
+      .filter((item) => toUtcDay(item.start) > now)
+      .sort((a, b) => toUtcDay(a.start) - toUtcDay(b.start))[0];
+
+    return {
+      activeId: active[0] ? active[0].id : null,
+      activeIds: active.map((item) => item.id),
+      nextId: next ? next.id : null,
+      daysToNext: next ? Math.ceil((toUtcDay(next.start) - now) / DAY_MS) : null
+    };
+  }
+
+  function calculateProgress(checked, total) {
+    if (!Number.isFinite(total) || total <= 0) return 0;
+    const percentage = Math.round((checked / total) * 100);
+    return Math.min(100, Math.max(0, percentage));
+  }
+
+  function filterTimeline(items, category) {
+    if (category === 'all') return items.slice();
+    return items.filter((item) => item.category === category);
+  }
+
+  function safeReadChecks(storage, key) {
+    try {
+      const parsed = JSON.parse(storage.getItem(key) || '{}');
+      if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') return {};
+      return Object.fromEntries(
+        Object.entries(parsed).filter(([, value]) => typeof value === 'boolean')
+      );
+    } catch {
+      return {};
+    }
+  }
+
+  function getLocalDateString(date) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+
+  function isSafeOfficialUpdateUrl(value) {
+    try {
+      const url = new URL(value);
+      return url.protocol === 'https:' && (
+        url.hostname === 'hainanu.edu.cn' || url.hostname.endsWith('.hainanu.edu.cn') ||
+        url.hostname === 'yz.chsi.com.cn'
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  function normalizeUpdatesPayload(value) {
+    const payload = value && typeof value === 'object' ? value : {};
+    const allowedStatuses = new Set(['fresh', 'stale', 'seed']);
+    const validIso = (candidate) => typeof candidate === 'string' && Number.isFinite(Date.parse(candidate));
+    const text = (candidate) => typeof candidate === 'string' ? candidate.trim() : '';
+    const freshnessStates = new Set(['fresh', 'aging', 'overdue', 'never']);
+
+    const sources = (Array.isArray(payload.sources) ? payload.sources : [])
+      .filter((source) => source && typeof source === 'object')
+      .map((source) => ({
+        id: text(source.id),
+        name: text(source.name),
+        url: text(source.url),
+        ok: source.ok === true ? true : source.ok === false ? false : null,
+        checkedAt: validIso(source.checkedAt) ? source.checkedAt : null,
+        lastSuccessAt: validIso(source.lastSuccessAt) ? source.lastSuccessAt : null,
+        attempts: Number.isInteger(source.attempts) && source.attempts >= 0 ? source.attempts : 0,
+        error: text(source.error) || null,
+        freshness: freshnessStates.has(source.freshness) ? source.freshness : null,
+        ageMs: Number.isFinite(source.ageMs) && source.ageMs >= 0 ? source.ageMs : null,
+        isOverdue: source.isOverdue === true || source.freshness === 'overdue' || source.freshness === 'never',
+        degraded: source.degraded === true
+      }))
+      .filter((source) => source.id && source.name && isSafeOfficialUpdateUrl(source.url));
+
+    const updates = (Array.isArray(payload.updates) ? payload.updates : [])
+      .filter((update) => update && typeof update === 'object')
+      .map((update) => ({
+        id: text(update.id),
+        title: text(update.title),
+        date: text(update.date),
+        url: text(update.url),
+        source: text(update.source),
+        sourceId: text(update.sourceId),
+        category: text(update.category) || '招生动态',
+        isTarget2027: update.isTarget2027 === true,
+        isImportant: update.isImportant === true,
+        discoveredAt: validIso(update.discoveredAt) ? update.discoveredAt : null
+      }))
+      .filter((update) => (
+        update.id && update.title && /^20\d{2}-\d{2}-\d{2}$/.test(update.date) &&
+        update.source && update.sourceId && isSafeOfficialUpdateUrl(update.url)
+      ))
+      .slice(0, 120);
+
+    const updateIds = new Set(updates.map((update) => update.id));
+    const sourceIds = new Set(sources.map((source) => source.id));
+    const newIds = Array.from(new Set(
+      (Array.isArray(payload.change?.newIds) ? payload.change.newIds : [])
+        .filter((id) => typeof id === 'string' && updateIds.has(id))
+    ));
+    const updatedIds = Array.from(new Set(
+      (Array.isArray(payload.change?.updatedIds) ? payload.change.updatedIds : [])
+        .filter((id) => typeof id === 'string' && updateIds.has(id))
+    ));
+    const overdueSourceIds = Array.from(new Set(
+      (Array.isArray(payload.freshness?.overdueSourceIds) ? payload.freshness.overdueSourceIds : [])
+        .filter((id) => typeof id === 'string' && sourceIds.has(id))
+    ));
+    const freshnessState = freshnessStates.has(payload.freshness?.state)
+      ? payload.freshness.state
+      : (validIso(payload.lastSuccessAt) ? 'aging' : 'never');
+
+    return {
+      schemaVersion: payload.schemaVersion === 2 ? 2 : 1,
+      status: allowedStatuses.has(payload.status) ? payload.status : 'seed',
+      fetchedAt: validIso(payload.fetchedAt) ? payload.fetchedAt : null,
+      lastAttemptAt: validIso(payload.lastAttemptAt) ? payload.lastAttemptAt : null,
+      lastAnySuccessAt: validIso(payload.lastAnySuccessAt) ? payload.lastAnySuccessAt : null,
+      lastAllSuccessAt: validIso(payload.lastAllSuccessAt) ? payload.lastAllSuccessAt : null,
+      lastSuccessAt: validIso(payload.lastSuccessAt) ? payload.lastSuccessAt : null,
+      nextRefreshAt: validIso(payload.nextRefreshAt) ? payload.nextRefreshAt : null,
+      refreshIntervalMs: Number.isFinite(payload.refreshIntervalMs) ? payload.refreshIntervalMs : null,
+      freshness: {
+        state: freshnessState,
+        ageMs: Number.isFinite(payload.freshness?.ageMs) && payload.freshness.ageMs >= 0
+          ? payload.freshness.ageMs
+          : null,
+        isOverdue: payload.freshness?.isOverdue === true || freshnessState === 'overdue' || freshnessState === 'never',
+        overdueSourceIds,
+        worstSourceAgeMs: Number.isFinite(payload.freshness?.worstSourceAgeMs) && payload.freshness.worstSourceAgeMs >= 0
+          ? payload.freshness.worstSourceAgeMs
+          : null
+      },
+      change: {
+        newCount: newIds.length,
+        newIds,
+        updatedCount: updatedIds.length,
+        updatedIds,
+        changedAt: validIso(payload.change?.changedAt) ? payload.change.changedAt : null
+      },
+      sources,
+      updates,
+      error: text(payload.error) || null
+    };
+  }
+
+  function getUnseenUpdates(updates, lastSeenAt) {
+    if (typeof lastSeenAt !== 'string' || !Number.isFinite(Date.parse(lastSeenAt))) return [];
+    const lastSeenTime = Date.parse(lastSeenAt);
+    return (Array.isArray(updates) ? updates : []).filter((update) => (
+      typeof update?.discoveredAt === 'string' && Number.isFinite(Date.parse(update.discoveredAt)) &&
+      Date.parse(update.discoveredAt) > lastSeenTime
+    ));
+  }
+
+  function getUnseenBaseline(existingBaseline, observedAt) {
+    if (typeof existingBaseline === 'string' && Number.isFinite(Date.parse(existingBaseline))) return existingBaseline;
+    if (typeof observedAt === 'string' && Number.isFinite(Date.parse(observedAt))) return observedAt;
+    return null;
+  }
+
+  function createUpdatesSnapshotKey(value) {
+    const stableValue = (candidate) => {
+      if (Array.isArray(candidate)) return candidate.map(stableValue);
+      if (candidate && typeof candidate === 'object') {
+        return Object.keys(candidate).sort().reduce((result, key) => {
+          result[key] = stableValue(candidate[key]);
+          return result;
+        }, {});
+      }
+      return candidate;
+    };
+    return JSON.stringify(stableValue(value));
+  }
+
+  function selectUpdatesForDisplay(updates, newIds, acknowledgedIds, mode) {
+    const allUpdates = Array.isArray(updates) ? updates : [];
+    const activeNewIds = new Set(
+      Array.from(newIds || []).filter((id) => !acknowledgedIds?.has(id))
+    );
+    const selectedUpdates = mode === 'new'
+      ? allUpdates.filter((update) => activeNewIds.has(update.id))
+      : allUpdates;
+
+    return {
+      updates: selectedUpdates,
+      newIds: selectedUpdates.filter((update) => activeNewIds.has(update.id)).map((update) => update.id)
+    };
+  }
+
+  function aggregateUpdatesForDisplay(updates, newIds = new Set(), acknowledgedIds = new Set()) {
+    const newIdSet = newIds instanceof Set ? newIds : new Set(newIds || []);
+    const acknowledgedIdSet = acknowledgedIds instanceof Set ? acknowledgedIds : new Set(acknowledgedIds || []);
+    const groupedByUrl = new Map();
+
+    (Array.isArray(updates) ? updates : []).forEach((update) => {
+      if (!update || typeof update !== 'object' || typeof update.url !== 'string') return;
+      let normalizedUrl = update.url;
+      try {
+        const parsedUrl = new URL(update.url);
+        parsedUrl.hash = '';
+        normalizedUrl = parsedUrl.href;
+      } catch { /* normalized payload already rejects unsafe URLs */ }
+      if (!groupedByUrl.has(normalizedUrl)) groupedByUrl.set(normalizedUrl, []);
+      groupedByUrl.get(normalizedUrl).push(update);
+    });
+
+    return Array.from(groupedByUrl.entries()).map(([url, members]) => {
+      const orderedMembers = members.slice().sort((left, right) => (
+        `${left.sourceId || ''}\u0000${left.id || ''}`.localeCompare(`${right.sourceId || ''}\u0000${right.id || ''}`)
+      ));
+      const primary = orderedMembers[0];
+      const sourceIds = [];
+      const sourceNames = [];
+      orderedMembers.forEach((member) => {
+        if (member.sourceId && !sourceIds.includes(member.sourceId)) sourceIds.push(member.sourceId);
+        if (member.source && !sourceNames.includes(member.source)) sourceNames.push(member.source);
+      });
+      const discoveredAt = orderedMembers
+        .map((member) => member.discoveredAt)
+        .filter((value) => typeof value === 'string' && Number.isFinite(Date.parse(value)))
+        .sort()
+        .at(-1) || null;
+      const memberIds = orderedMembers.map((member) => member.id).filter(Boolean);
+
+      return {
+        id: `url:${url}`,
+        url,
+        title: primary.title,
+        date: primary.date,
+        category: primary.category,
+        source: sourceNames.join('、'),
+        sourceNames,
+        sourceIds,
+        memberIds,
+        discoveredAt,
+        isTarget2027: orderedMembers.some((member) => member.isTarget2027),
+        isImportant: orderedMembers.some((member) => member.isImportant),
+        isNew: memberIds.some((id) => newIdSet.has(id) && !acknowledgedIdSet.has(id))
+      };
+    });
+  }
+
+  function showSessionStorageWarning() {
+    const warning = document.querySelector('#storage-session-warning');
+    if (warning) warning.hidden = false;
+  }
+
+  function formatFreshness(freshness = {}, refreshIntervalMs) {
+    if (freshness.state === 'never') return '尚未成功同步';
+    if (freshness.state === 'fresh') return '新鲜 · 少于 1 个刷新周期';
+    if (freshness.state === 'aging') return '待补同步 · 1–2 个刷新周期';
+    if (!Number.isFinite(freshness.ageMs) || !Number.isFinite(refreshIntervalMs) || refreshIntervalMs <= 0) {
+      return '已逾期 · 超过 2 个刷新周期';
+    }
+    const cycles = Math.max(2, Math.floor(freshness.ageMs / refreshIntervalMs));
+    return `已逾期 · ${cycles} 个刷新周期`;
+  }
+
+  function formatRefreshInterval(refreshIntervalMs) {
+    const minuteMs = 60_000;
+    const hourMs = 60 * minuteMs;
+    if (!Number.isFinite(refreshIntervalMs) || refreshIntervalMs <= 0) return '按刷新周期';
+    if (refreshIntervalMs % hourMs === 0) return `${refreshIntervalMs / hourMs} 小时`;
+    if (refreshIntervalMs % minuteMs === 0) return `${refreshIntervalMs / minuteMs} 分钟`;
+    return '按刷新周期';
+  }
+
+  function formatLiveDate(value) {
+    if (!value || !Number.isFinite(Date.parse(value))) return '尚未成功同步';
+    return new Intl.DateTimeFormat('zh-CN', {
+      timeZone: 'Asia/Shanghai',
+      month: 'numeric',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false
+    }).format(new Date(value));
+  }
+
+  function formatSourceHealthTitle(source, refreshIntervalMs) {
+    const state = source.degraded
+      ? '数据异常，保留旧缓存'
+      : source.error || (source.ok === true ? '连接正常' : source.ok === false ? '连接失败' : '等待连接');
+    const freshness = source.freshness
+      ? formatFreshness({ state: source.freshness, ageMs: source.ageMs }, refreshIntervalMs)
+      : source.isOverdue
+        ? formatFreshness({ state: 'overdue', ageMs: source.ageMs }, refreshIntervalMs)
+        : '未知';
+    const lastSuccess = source.lastSuccessAt ? formatLiveDate(source.lastSuccessAt) : '尚无成功记录';
+    return `${source.name}：${state}；数据新鲜度：${freshness}；最近成功：${lastSuccess}`;
+  }
+
+  function createTextElement(tagName, className, content) {
+    const element = document.createElement(tagName);
+    if (className) element.className = className;
+    if (content !== undefined) element.textContent = content;
+    return element;
+  }
+
+  function initOfficialUpdates() {
+    const consoleElement = document.querySelector('#live-updates-console');
+    const refreshButton = document.querySelector('#refresh-official-updates');
+    if (!consoleElement || !refreshButton) return;
+
+    const statusTitle = document.querySelector('#live-status-title');
+    const statusDetail = document.querySelector('#live-status-detail');
+    const lastSuccess = document.querySelector('#live-last-success');
+    const freshness = document.querySelector('#live-freshness');
+    const nextRefresh = document.querySelector('#live-next-refresh');
+    const sourceCount = document.querySelector('#live-source-count');
+    const newCount = document.querySelector('#live-new-count');
+    const sourceHealth = document.querySelector('#live-source-health');
+    const updatesList = document.querySelector('#official-updates-list');
+    const updateFilterButtons = Array.from(document.querySelectorAll('[data-updates-filter]'));
+    const acknowledgeUpdatesButton = document.querySelector('#acknowledge-official-updates');
+    let hasRenderedSnapshot = false;
+    let unseenBaselineAt = null;
+    let latestPayload = null;
+    let updateView = 'all';
+    let renderedUpdatesKey = null;
+    const acknowledgedUpdateIds = new Set();
+    let pollTimer = null;
+    let activeRequestController = null;
+    let requestInFlight = false;
+    let resumePending = false;
+    try {
+      const storedLastSeenAt = window.localStorage.getItem(LAST_SEEN_UPDATES_KEY);
+      if (storedLastSeenAt && Number.isFinite(Date.parse(storedLastSeenAt))) unseenBaselineAt = storedLastSeenAt;
+    } catch {
+      unseenBaselineAt = null;
+      showSessionStorageWarning();
+    }
+
+    function renderSources(sources, refreshIntervalMs) {
+      if (!sourceHealth) return;
+      sourceHealth.replaceChildren();
+      sources.forEach((source) => {
+        const classes = [
+          'source-health-chip',
+          `is-${source.ok === true ? 'ok' : source.ok === false ? 'error' : 'waiting'}`,
+          source.freshness ? `is-freshness-${source.freshness}` : '',
+          source.isOverdue ? 'is-overdue' : '',
+          source.degraded ? 'is-degraded' : ''
+        ].filter(Boolean).join(' ');
+        const link = createTextElement('a', classes);
+        link.href = source.url;
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        const healthTitle = formatSourceHealthTitle(source, refreshIntervalMs);
+        link.title = healthTitle;
+        link.setAttribute('aria-label', healthTitle);
+        const dot = createTextElement('span', 'source-health-dot');
+        dot.setAttribute('aria-hidden', 'true');
+        link.append(dot, document.createTextNode(source.name));
+        sourceHealth.append(link);
+      });
+    }
+
+    function renderUpdates(updates, unseenIds = new Set()) {
+      if (!updatesList) return;
+      const displayUpdates = aggregateUpdatesForDisplay(updates, unseenIds, acknowledgedUpdateIds);
+      const displayNewIds = new Set(displayUpdates.filter((update) => update.isNew).map((update) => update.id));
+      const selection = selectUpdatesForDisplay(displayUpdates, displayNewIds, new Set(), updateView);
+      const listRenderKey = createUpdatesSnapshotKey({
+        updateView,
+        updates: selection.updates,
+        newIds: selection.newIds
+      });
+      if (listRenderKey === renderedUpdatesKey) return;
+      renderedUpdatesKey = listRenderKey;
+      updatesList.replaceChildren();
+
+      if (!selection.updates.length) {
+        const empty = createTextElement('li', 'official-update-empty');
+        empty.append(
+          createTextElement('strong', '', updateView === 'new' ? '暂时没有未读新公告' : '暂未读到相关通知'),
+          createTextElement('span', '', updateView === 'new'
+            ? '确认已读后，新公告会从此处移除；可切换到“全部”查看完整列表。'
+            : '这不等于学校没有公告；可稍后手动同步或直接查看下方官方信源。')
+        );
+        updatesList.append(empty);
+        return;
+      }
+
+      const selectedNewIds = new Set(selection.newIds);
+      selection.updates.forEach((update) => {
+        const item = document.createElement('li');
+        const link = createTextElement('a', 'official-update-link');
+        link.href = update.url;
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+
+        const date = createTextElement('time', 'official-update-date', update.date.slice(5).replace('-', '.'));
+        date.dateTime = update.date;
+        const copy = createTextElement('div', 'official-update-copy');
+        const meta = createTextElement('div', 'official-update-meta');
+        meta.append(createTextElement('span', 'official-update-category', update.category));
+        if (selectedNewIds.has(update.id)) meta.append(createTextElement('span', 'official-update-new', '新公告'));
+        if (update.isTarget2027) meta.append(createTextElement('span', 'official-update-target', '2027 重点'));
+        copy.append(
+          meta,
+          createTextElement('h3', '', update.title),
+          createTextElement('p', '', update.source)
+        );
+        const arrow = createTextElement('span', 'official-update-arrow', '↗');
+        arrow.setAttribute('aria-hidden', 'true');
+        link.append(date, copy, arrow);
+        item.append(link);
+        updatesList.append(item);
+      });
+    }
+
+    function renderSnapshot(rawPayload) {
+      const payload = normalizeUpdatesPayload(rawPayload);
+      const observedAt = payload.fetchedAt || payload.lastSuccessAt;
+      unseenBaselineAt = getUnseenBaseline(unseenBaselineAt, observedAt);
+      const unseenUpdates = getUnseenUpdates(payload.updates, unseenBaselineAt);
+      const unseenIds = new Set(unseenUpdates.map((update) => update.id));
+      const displayUpdates = aggregateUpdatesForDisplay(payload.updates, unseenIds, acknowledgedUpdateIds);
+      latestPayload = payload;
+      hasRenderedSnapshot = true;
+      consoleElement.dataset.state = payload.status;
+      consoleElement.dataset.freshness = payload.freshness.state;
+
+      const successfulSources = payload.sources.filter((source) => source.ok).length;
+      const overdueSourceIds = new Set(payload.freshness.overdueSourceIds);
+      const overdueSourceNames = payload.sources
+        .filter((source) => source.isOverdue || overdueSourceIds.has(source.id))
+        .map((source) => source.name);
+      const recoveredFromCacheBackup = /主缓存(?:缺失|损坏).*已从备份恢复/.test(payload.error || '');
+      let title;
+      let defaultDetail;
+      if (recoveredFromCacheBackup) {
+        [title, defaultDetail] = ['已从缓存备份恢复，等待验证', '已恢复最近一次可信缓存；正在等待下一次官方来源验证。'];
+      } else if (overdueSourceNames.length) {
+        const names = overdueSourceNames.join('、');
+        [title, defaultDetail] = [`部分来源数据逾期 · ${names}`, `${names} 的数据已超过正常刷新窗口，其余来源仍可查看。`];
+      } else if (payload.freshness.state === 'overdue') {
+        [title, defaultDetail] = ['同步已逾期 · 后台正在重试', '最近成功数据仍可查看，请同时留意下方官方原文入口。'];
+      } else if (payload.status === 'fresh') {
+        [title, defaultDetail] = ['已连接 · 官方数据已同步', `${payload.sources.length} 条官方信息流运行正常。`];
+      } else if (payload.status === 'seed') {
+        [title, defaultDetail] = ['服务已启动 · 等待首次成功同步', '后台正在连接海南大学官方页面。'];
+      } else if (successfulSources === 0) {
+        [title, defaultDetail] = ['缓存保护中 · 官方来源暂不可用', '正在展示最近一次成功数据，请稍后重试。'];
+      } else if (/缓存写入失败/.test(payload.error || '')) {
+        [title, defaultDetail] = ['官方数据已读取 · 本地缓存写入失败', '当前页面可用，但重启服务后可能回到旧缓存。'];
+      } else {
+        [title, defaultDetail] = ['缓存保护中 · 部分来源未连接', '继续展示最近一次成功数据，请结合官方原文确认。'];
+      }
+      if (statusTitle) statusTitle.textContent = title;
+      if (statusDetail) statusDetail.textContent = payload.error || defaultDetail;
+      if (lastSuccess) lastSuccess.textContent = formatLiveDate(payload.lastSuccessAt);
+      if (freshness) freshness.textContent = formatFreshness(payload.freshness, payload.refreshIntervalMs);
+      if (nextRefresh) {
+        const refreshInterval = formatRefreshInterval(payload.refreshIntervalMs);
+        nextRefresh.textContent = payload.nextRefreshAt
+          ? formatLiveDate(payload.nextRefreshAt)
+          : refreshInterval === '按刷新周期' ? refreshInterval : `每 ${refreshInterval}`;
+      }
+      if (sourceCount) sourceCount.textContent = `${successfulSources} / ${payload.sources.length || 4} 正常`;
+      if (newCount) {
+        const unacknowledgedCount = displayUpdates.filter((update) => update.isNew).length;
+        newCount.hidden = unacknowledgedCount === 0;
+        newCount.textContent = unacknowledgedCount ? `${unacknowledgedCount} 条新公告` : '';
+      }
+      renderSources(payload.sources, payload.refreshIntervalMs);
+      renderUpdates(payload.updates, unseenIds);
+    }
+
+    function renderDisconnected(message) {
+      consoleElement.dataset.state = 'offline';
+      if (statusTitle) statusTitle.textContent = '自动更新未连接';
+      if (statusDetail) statusDetail.textContent = message;
+      if (!hasRenderedSnapshot) {
+        if (lastSuccess) lastSuccess.textContent = '—';
+        if (freshness) freshness.textContent = '服务未连接';
+        if (nextRefresh) nextRefresh.textContent = '启动服务后启用';
+        if (sourceCount) sourceCount.textContent = '0 / 4 连接';
+        if (newCount) newCount.hidden = true;
+        if (sourceHealth) sourceHealth.replaceChildren();
+        if (updatesList) {
+          const empty = createTextElement('li', 'official-update-empty');
+          empty.append(
+            createTextElement('strong', '', '静态导航仍可正常使用'),
+            createTextElement('span', '', '启动本地服务后，这里会显示自动获取的海南大学官方通知。')
+          );
+          updatesList.replaceChildren(empty);
+        }
+      }
+    }
+
+    function scheduleNextPoll() {
+      if (pollTimer) window.clearTimeout(pollTimer);
+      pollTimer = null;
+      if (document.visibilityState === 'hidden') return;
+      pollTimer = window.setTimeout(() => loadUpdates(false), 60 * 1000);
+    }
+
+    async function loadUpdates(manual = false) {
+      if (requestInFlight || (!manual && document.visibilityState === 'hidden')) return;
+      requestInFlight = true;
+      const controller = new AbortController();
+      activeRequestController = controller;
+      const timeout = window.setTimeout(() => controller.abort(), 8_000);
+      const showBusy = manual || !hasRenderedSnapshot;
+      if (showBusy) {
+        refreshButton.disabled = true;
+        refreshButton.setAttribute('aria-busy', 'true');
+        refreshButton.textContent = manual ? '正在同步…' : '正在连接…';
+      }
+
+      try {
+        const response = await window.fetch(manual ? '/api/refresh' : '/api/updates', {
+          method: manual ? 'POST' : 'GET',
+          headers: {
+            accept: 'application/json',
+            ...(manual ? { 'x-hnu-guide-request': '1' } : {})
+          },
+          cache: 'no-store',
+          signal: controller.signal
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        renderSnapshot(await response.json());
+      } catch {
+        renderDisconnected(hasRenderedSnapshot
+          ? '本次同步失败，已保留当前页面中的最近数据。'
+          : '请运行 start-guide.cmd 或 npm start，再通过 http://127.0.0.1:4173 打开本页。');
+      } finally {
+        window.clearTimeout(timeout);
+        if (activeRequestController === controller) activeRequestController = null;
+        requestInFlight = false;
+        if (showBusy) {
+          refreshButton.disabled = window.location.protocol === 'file:';
+          refreshButton.removeAttribute('aria-busy');
+          refreshButton.textContent = '立即同步';
+        }
+        if (resumePending && document.visibilityState !== 'hidden') {
+          resumePending = false;
+          loadUpdates(false);
+          return;
+        }
+        scheduleNextPoll();
+      }
+    }
+
+    refreshButton.addEventListener('click', () => loadUpdates(true));
+    updateFilterButtons.forEach((button) => {
+      button.addEventListener('click', () => {
+        updateView = button.dataset.updatesFilter === 'new' ? 'new' : 'all';
+        updateFilterButtons.forEach((candidate) => {
+          candidate.setAttribute('aria-pressed', String(candidate === button));
+        });
+        if (latestPayload) {
+          const unseenIds = new Set(getUnseenUpdates(latestPayload.updates, unseenBaselineAt).map((update) => update.id));
+          renderUpdates(latestPayload.updates, unseenIds);
+        }
+      });
+    });
+    acknowledgeUpdatesButton?.addEventListener('click', () => {
+      if (!latestPayload) return;
+      const unseenUpdates = getUnseenUpdates(latestPayload.updates, unseenBaselineAt);
+      unseenUpdates.forEach((update) => acknowledgedUpdateIds.add(update.id));
+      const observedAt = latestPayload.fetchedAt || latestPayload.lastSuccessAt;
+      if (observedAt) {
+        try {
+          window.localStorage.setItem(LAST_SEEN_UPDATES_KEY, observedAt);
+        } catch {
+          showSessionStorageWarning();
+        }
+      }
+      renderedUpdatesKey = null;
+      renderSnapshot(latestPayload);
+    });
+
+    if (window.location.protocol === 'file:') {
+      renderDisconnected('当前是静态文件模式；运行 start-guide.cmd 后即可自动读取官网通知。');
+      refreshButton.disabled = true;
+      refreshButton.title = '请先启动本地 Node.js 服务';
+      return;
+    }
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') {
+        if (pollTimer) window.clearTimeout(pollTimer);
+        pollTimer = null;
+        activeRequestController?.abort();
+        return;
+      }
+      if (requestInFlight) {
+        resumePending = true;
+        return;
+      }
+      resumePending = false;
+      loadUpdates(false);
+    });
+    loadUpdates(false);
+  }
+
+  function initPage() {
+    const timelineElements = Array.from(document.querySelectorAll('[data-milestone-id]'));
+    const state = getTimelineState(milestones, getLocalDateString(new Date()));
+    const activeElements = state.activeIds
+      .map((id) => timelineElements.find((element) => element.dataset.milestoneId === id))
+      .filter(Boolean);
+    const nextElement = timelineElements.find((element) => element.dataset.milestoneId === state.nextId);
+
+    timelineElements.forEach((element) => {
+      const isActive = state.activeIds.includes(element.dataset.milestoneId);
+      element.classList.toggle('is-current', isActive);
+      if (isActive) element.setAttribute('aria-current', 'step');
+      else element.removeAttribute('aria-current');
+    });
+
+    const stageName = document.querySelector('#current-stage-name');
+    const stageDetail = document.querySelector('#current-stage-detail');
+    const nextName = document.querySelector('#next-stage-name');
+    const nextDays = document.querySelector('#next-stage-days');
+
+    if (stageName) stageName.textContent = activeElements.map((element) => element.dataset.label).join(' / ') || '等待下一节点';
+    if (stageDetail) {
+      stageDetail.textContent = activeElements.length
+        ? activeElements.map((element) => element.dataset.action || '按时间轴完成当前行动').join('；')
+        : '查看时间轴确认最近的官方节点';
+    }
+    if (nextName) nextName.textContent = nextElement?.dataset.label || '本周期已无后续节点';
+    if (nextDays) {
+      nextDays.textContent = Number.isFinite(state.daysToNext)
+        ? `${state.daysToNext} 天`
+        : '—';
+    }
+
+    const checkboxes = Array.from(document.querySelectorAll('.task-check[data-check-id]'));
+    let progressStorage = null;
+    try {
+      progressStorage = window.localStorage;
+      progressStorage.getItem(STORAGE_KEY);
+    } catch {
+      // Some restricted or file origins block access at the property getter.
+      showSessionStorageWarning();
+    }
+    const saved = safeReadChecks(progressStorage, STORAGE_KEY);
+    checkboxes.forEach((checkbox) => {
+      checkbox.checked = saved[checkbox.dataset.checkId] === true;
+    });
+
+    function renderProgress() {
+      const completed = checkboxes.filter((checkbox) => checkbox.checked).length;
+      const percent = calculateProgress(completed, checkboxes.length);
+      const bar = document.querySelector('#progress-bar');
+      const text = document.querySelector('#progress-text');
+      const count = document.querySelector('#progress-count');
+
+      if (bar) {
+        bar.style.width = `${percent}%`;
+        bar.parentElement?.setAttribute('aria-valuenow', String(percent));
+      }
+      if (text) text.textContent = `${percent}%`;
+      if (count) count.textContent = `${completed} / ${checkboxes.length} 项`;
+      checkboxes.forEach((checkbox) => {
+        checkbox.closest('label')?.setAttribute('data-print-state', checkbox.checked ? '已完成' : '未完成');
+      });
+    }
+
+    function persistChecks() {
+      const value = Object.fromEntries(
+        checkboxes.map((checkbox) => [checkbox.dataset.checkId, checkbox.checked])
+      );
+      try {
+        progressStorage?.setItem(STORAGE_KEY, JSON.stringify(value));
+      } catch {
+        // Storage may be disabled in private or hardened browser modes.
+        showSessionStorageWarning();
+      }
+      renderProgress();
+    }
+
+    checkboxes.forEach((checkbox) => checkbox.addEventListener('change', persistChecks));
+    renderProgress();
+
+    const resetButton = document.querySelector('#reset-progress');
+    resetButton?.addEventListener('click', () => {
+      if (!window.confirm('确定清空本页所有已勾选进度吗？此操作无法撤销。')) return;
+      checkboxes.forEach((checkbox) => { checkbox.checked = false; });
+      persistChecks();
+    });
+
+    const filterButtons = Array.from(document.querySelectorAll('[data-filter]'));
+    const categoryItems = timelineElements.map((element) => ({
+      id: element.dataset.milestoneId,
+      category: element.dataset.category,
+      element
+    }));
+
+    filterButtons.forEach((button) => {
+      button.addEventListener('click', () => {
+        const category = button.dataset.filter;
+        const visibleIds = new Set(filterTimeline(categoryItems, category).map((item) => item.id));
+        categoryItems.forEach((item) => { item.element.hidden = !visibleIds.has(item.id); });
+        filterButtons.forEach((candidate) => {
+          candidate.setAttribute('aria-pressed', String(candidate === button));
+        });
+      });
+    });
+
+    document.querySelectorAll('[data-print]').forEach((button) => {
+      button.addEventListener('click', () => window.print());
+    });
+
+    const navLinks = Array.from(document.querySelectorAll('.section-nav a'));
+    if ('IntersectionObserver' in window) {
+      const observer = new IntersectionObserver((entries) => {
+        entries.forEach((entry) => {
+          if (!entry.isIntersecting) return;
+          navLinks.forEach((link) => {
+            const active = link.getAttribute('href') === `#${entry.target.id}`;
+            link.classList.toggle('is-active', active);
+            if (active) link.setAttribute('aria-current', 'location');
+            else link.removeAttribute('aria-current');
+          });
+        });
+      }, { rootMargin: '-20% 0px -68% 0px' });
+      document.querySelectorAll('main section[id]').forEach((section) => observer.observe(section));
+    }
+
+    initOfficialUpdates();
+  }
+
+  if (typeof module !== 'undefined' && module.exports) {
+    module.exports = {
+      calculateProgress,
+      aggregateUpdatesForDisplay,
+      filterTimeline,
+      formatFreshness,
+      formatRefreshInterval,
+      formatSourceHealthTitle,
+      createUpdatesSnapshotKey,
+      getTimelineState,
+      getUnseenBaseline,
+      getUnseenUpdates,
+      isSafeOfficialUpdateUrl,
+      normalizeUpdatesPayload,
+      safeReadChecks,
+      selectUpdatesForDisplay
+    };
+  }
+
+  if (typeof document !== 'undefined') {
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', initPage, { once: true });
+    } else {
+      initPage();
+    }
+  }
+})();

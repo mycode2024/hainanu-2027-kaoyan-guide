@@ -1,0 +1,318 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const http = require('node:http');
+const path = require('node:path');
+
+function loadServer() {
+  try {
+    delete require.cache[require.resolve('../src/http-app.cjs')];
+    return require('../src/http-app.cjs');
+  } catch {
+    return {};
+  }
+}
+
+test('refresh summaries are formatted as one-line JSON records', () => {
+  delete require.cache[require.resolve('../server.cjs')];
+  const { formatRefreshLog } = require('../server.cjs');
+  const line = formatRefreshLog({
+    type: 'refresh-complete', status: 'stale', cacheSaved: true,
+    durationMs: 12, newCount: 1, updatedCount: 0, sources: []
+  });
+
+  assert.equal(line.includes('\n'), false);
+  assert.deepEqual(JSON.parse(line), {
+    event: 'official-refresh', type: 'refresh-complete', status: 'stale', cacheSaved: true,
+    durationMs: 12, newCount: 1, updatedCount: 0, sources: []
+  });
+});
+
+function rawRequest(port, pathname, method = 'GET', body = '', headers = {}) {
+  return new Promise((resolve, reject) => {
+    const request = http.request({
+      hostname: '127.0.0.1',
+      port,
+      path: pathname,
+      method,
+      headers: {
+        ...headers,
+        ...(body ? { 'content-length': Buffer.byteLength(body) } : {})
+      }
+    }, (response) => {
+      const chunks = [];
+      response.on('data', (chunk) => chunks.push(chunk));
+      response.on('end', () => resolve({
+        status: response.statusCode,
+        headers: response.headers,
+        body: Buffer.concat(chunks).toString('utf8')
+      }));
+    });
+    request.on('error', reject);
+    request.end(body);
+  });
+}
+
+function createServiceDouble() {
+  let snapshot = {
+    status: 'seed', fetchedAt: '2026-08-22T04:00:00.000Z', lastSuccessAt: null,
+    lastAttemptAt: '2026-08-22T03:59:00.000Z', lastAllSuccessAt: null,
+    nextRefreshAt: '2026-08-22T10:00:00.000Z', refreshIntervalMs: 21_600_000,
+    sources: [], updates: [], error: null,
+    freshness: { state: 'never', overdueSourceIds: ['hnu-graduate'], worstSourceAgeMs: null, ageMs: null, isOverdue: true }
+  };
+  let refreshCalls = 0;
+  let dueRefreshCalls = 0;
+  return {
+    get refreshCalls() { return refreshCalls; },
+    get dueRefreshCalls() { return dueRefreshCalls; },
+    getSnapshot() { return snapshot; },
+    refreshIfDue() {
+      dueRefreshCalls += 1;
+      return { started: false, promise: null };
+    },
+    async refresh() {
+      refreshCalls += 1;
+      snapshot = { ...snapshot, status: 'fresh', lastSuccessAt: '2026-08-22T04:01:00.000Z' };
+      return snapshot;
+    }
+  };
+}
+
+test('a snapshot read starts an overdue refresh without delaying the response', async (t) => {
+  const { createHttpServer } = loadServer();
+  let resolveRefresh;
+  const pendingRefresh = new Promise((resolve) => { resolveRefresh = resolve; });
+  let dueRefreshCalls = 0;
+  const updateService = {
+    getSnapshot: () => ({ status: 'stale', updates: [] }),
+    refresh: async () => ({ status: 'fresh', updates: [] }),
+    refreshIfDue() {
+      dueRefreshCalls += 1;
+      return { started: true, promise: pendingRefresh };
+    }
+  };
+  const server = createHttpServer({ siteRoot: path.resolve(__dirname, '..'), updateService });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+
+  const response = await fetch(`http://127.0.0.1:${server.address().port}/api/updates`);
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).status, 'stale');
+  assert.equal(dueRefreshCalls, 1);
+  resolveRefresh();
+});
+
+test('serves the live snapshot and manual refresh over JSON APIs', async (t) => {
+  const { createHttpServer } = loadServer();
+  assert.equal(typeof createHttpServer, 'function', 'createHttpServer must be exported');
+
+  const updateService = createServiceDouble();
+  const server = createHttpServer({ siteRoot: path.resolve(__dirname, '..'), updateService });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  const base = `http://127.0.0.1:${server.address().port}`;
+
+  const health = await fetch(`${base}/api/health`);
+  assert.equal(health.status, 200);
+  const healthBody = await health.json();
+  assert.equal(Number.isInteger(healthBody.uptimeSeconds), true);
+  assert.deepEqual({ ...healthBody, uptimeSeconds: 0 }, {
+    product: 'hainanu-2027-kaoyan-guide',
+    schemaVersion: 2,
+    live: true,
+    ready: false,
+    uptimeSeconds: 0,
+    status: 'seed',
+    lastAttemptAt: '2026-08-22T03:59:00.000Z',
+    lastAllSuccessAt: null,
+    overdueSourceIds: ['hnu-graduate']
+  });
+  const healthHead = await fetch(`${base}/api/health`, { method: 'HEAD' });
+  assert.equal(healthHead.status, 200);
+  assert.equal(await healthHead.text(), '');
+
+  const before = await fetch(`${base}/api/updates`);
+  assert.equal(before.status, 200);
+  assert.equal(before.headers.get('content-type'), 'application/json; charset=utf-8');
+  assert.equal((await before.json()).status, 'seed');
+
+  const refreshed = await fetch(`${base}/api/refresh`, {
+    method: 'POST',
+    headers: { 'x-hnu-guide-request': '1', origin: base }
+  });
+  assert.equal(refreshed.status, 200);
+  assert.equal((await refreshed.json()).status, 'fresh');
+  assert.equal(updateService.refreshCalls, 1);
+});
+
+test('keeps the existing static guide available with HEAD support', async (t) => {
+  const { createHttpServer } = loadServer();
+  const server = createHttpServer({
+    siteRoot: path.resolve(__dirname, '..'),
+    updateService: createServiceDouble()
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  const base = `http://127.0.0.1:${server.address().port}`;
+
+  const page = await fetch(`${base}/`);
+  assert.equal(page.status, 200);
+  assert.equal(page.headers.get('content-type'), 'text/html; charset=utf-8');
+  assert.match(await page.text(), /海南大学 2027 计算机 408 考研航线图/);
+
+  const head = await fetch(`${base}/styles.css`, { method: 'HEAD' });
+  assert.equal(head.status, 200);
+  assert.equal(await head.text(), '');
+});
+
+test('rejects unsupported API methods and does not expose project internals', async (t) => {
+  const { createHttpServer } = loadServer();
+  const server = createHttpServer({
+    siteRoot: path.resolve(__dirname, '..'),
+    updateService: createServiceDouble()
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  const port = server.address().port;
+
+  const wrongMethod = await rawRequest(port, '/api/refresh', 'GET');
+  assert.equal(wrongMethod.status, 405);
+  assert.equal(wrongMethod.headers.allow, 'POST');
+
+  const internalFile = await rawRequest(port, '/server.cjs');
+  assert.equal(internalFile.status, 404);
+
+  const traversal = await rawRequest(port, '/%2e%2e/server.cjs');
+  assert.equal(traversal.status, 403);
+});
+
+test('returns JSON 413 instead of resetting the connection for an oversized refresh body', async (t) => {
+  const { createHttpServer } = loadServer();
+  const server = createHttpServer({
+    siteRoot: path.resolve(__dirname, '..'),
+    updateService: createServiceDouble()
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+
+  const response = await new Promise((resolve, reject) => {
+    const body = 'x'.repeat(2048);
+    const request = http.request({
+      hostname: '127.0.0.1',
+      port: server.address().port,
+      path: '/api/refresh',
+      method: 'POST',
+      headers: {
+        'content-length': Buffer.byteLength(body),
+        'x-hnu-guide-request': '1',
+        origin: `http://127.0.0.1:${server.address().port}`
+      }
+    }, (incoming) => {
+      const chunks = [];
+      incoming.on('data', (chunk) => chunks.push(chunk));
+      incoming.on('end', () => resolve({ status: incoming.statusCode, headers: incoming.headers, body: Buffer.concat(chunks).toString('utf8') }));
+    });
+    request.on('error', reject);
+    request.end(body);
+  });
+  assert.equal(response.status, 413);
+  assert.equal(response.headers['content-type'], 'application/json; charset=utf-8');
+  assert.deepEqual(JSON.parse(response.body), { error: 'Request body too large' });
+});
+
+test('blocks cross-site or unmarked requests from triggering an official refresh', async (t) => {
+  const { createHttpServer } = loadServer();
+  const updateService = createServiceDouble();
+  const server = createHttpServer({ siteRoot: path.resolve(__dirname, '..'), updateService });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  const base = `http://127.0.0.1:${server.address().port}`;
+
+  const unmarked = await fetch(`${base}/api/refresh`, { method: 'POST' });
+  assert.equal(unmarked.status, 403);
+
+  const crossSite = await fetch(`${base}/api/refresh`, {
+    method: 'POST',
+    headers: {
+      'x-hnu-guide-request': '1',
+      origin: 'https://evil.example',
+      'sec-fetch-site': 'cross-site'
+    }
+  });
+  assert.equal(crossSite.status, 403);
+  assert.equal(updateService.refreshCalls, 0);
+});
+
+test('manual refresh rejects DNS rebinding and missing origins, then enforces a bounded cooldown', async (t) => {
+  const { createHttpServer } = loadServer();
+  const updateService = createServiceDouble();
+  let currentTime = 1_000_000;
+  const server = createHttpServer({
+    siteRoot: path.resolve(__dirname, '..'),
+    updateService,
+    manualRefreshCooldownMs: 2_000,
+    now: () => currentTime
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  const port = server.address().port;
+  const localOrigin = `http://127.0.0.1:${port}`;
+  const marker = { 'x-hnu-guide-request': '1' };
+
+  const rebinding = await rawRequest(port, '/api/refresh', 'POST', '', {
+    ...marker,
+    host: `attacker.test:${port}`,
+    origin: `http://attacker.test:${port}`
+  });
+  assert.equal(rebinding.status, 403);
+
+  const missingOrigin = await rawRequest(port, '/api/refresh', 'POST', '', marker);
+  assert.equal(missingOrigin.status, 403);
+
+  const mismatch = await rawRequest(port, '/api/refresh', 'POST', '', {
+    ...marker,
+    origin: `http://127.0.0.1:${port + 1}`
+  });
+  assert.equal(mismatch.status, 403);
+
+  const legitimate = await rawRequest(port, '/api/refresh', 'POST', '', { ...marker, origin: localOrigin });
+  assert.equal(legitimate.status, 200);
+
+  const throttled = await rawRequest(port, '/api/refresh', 'POST', '', { ...marker, origin: localOrigin });
+  assert.equal(throttled.status, 429);
+  assert.ok(Number(throttled.headers['retry-after']) >= 1);
+  assert.ok(Number(throttled.headers['retry-after']) <= 60);
+  assert.equal(updateService.refreshCalls, 1);
+
+  currentTime += 2_001;
+  const afterCooldown = await rawRequest(port, '/api/refresh', 'POST', '', { ...marker, origin: localOrigin });
+  assert.equal(afterCooldown.status, 200);
+  assert.equal(updateService.refreshCalls, 2);
+});
+
+test('health distinguishes a live process from trusted-data readiness', async (t) => {
+  const { createHttpServer } = loadServer();
+  let snapshot = { status: 'seed', updates: [], freshness: { overdueSourceIds: [] } };
+  const updateService = {
+    getSnapshot: () => snapshot,
+    refresh: async () => snapshot
+  };
+  const server = createHttpServer({ siteRoot: path.resolve(__dirname, '..'), updateService });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  const base = `http://127.0.0.1:${server.address().port}`;
+
+  const seed = await (await fetch(`${base}/api/health`)).json();
+  assert.equal(seed.live, true);
+  assert.equal(seed.ready, false);
+
+  snapshot = {
+    status: 'stale',
+    updates: [{ id: 'trusted-cache' }],
+    lastAnySuccessAt: '2026-08-23T04:00:00.000Z',
+    freshness: { overdueSourceIds: ['hnu-graduate'] }
+  };
+  const stale = await (await fetch(`${base}/api/health`)).json();
+  assert.equal(stale.live, true);
+  assert.equal(stale.ready, true);
+});
