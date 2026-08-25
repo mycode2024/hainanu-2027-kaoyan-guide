@@ -20,6 +20,7 @@ function createFakeElement(options = {}) {
     dataset: { ...(options.dataset || {}) },
     disabled: false,
     hidden: options.hidden === true,
+    focusCalls: 0,
     parentElement: options.parentElement || null,
     replaceChildrenCalls: 0,
     style: {},
@@ -36,8 +37,11 @@ function createFakeElement(options = {}) {
     closest(selector) {
       return selector === 'label' ? this.label || null : null;
     },
-    dispatch(type) {
-      (listeners.get(type) || []).forEach((listener) => listener({ target: this, type }));
+    dispatch(type, event = {}) {
+      (listeners.get(type) || []).forEach((listener) => listener({ target: this, type, ...event }));
+    },
+    focus() {
+      this.focusCalls += 1;
     },
     getAttribute(name) {
       return Object.hasOwn(this.attributes, name) ? this.attributes[name] : null;
@@ -102,6 +106,7 @@ function collectText(element) {
 }
 
 function installFakePage(options = {}) {
+  const originalDate = global.Date;
   const originalWindow = global.window;
   const originalDocument = global.document;
   const hadWindow = Object.hasOwn(global, 'window');
@@ -121,6 +126,7 @@ function installFakePage(options = {}) {
     progressCount: createFakeElement(),
     progressText: createFakeElement(),
     refresh: createFakeElement(),
+    reset: createFakeElement({ dataset: options.resetScope ? { resetScope: options.resetScope } : {} }),
     sourceHealth: createFakeElement(),
     sourceCount: createFakeElement(),
     statusDetail: createFakeElement(),
@@ -128,8 +134,15 @@ function installFakePage(options = {}) {
     storageWarning: createFakeElement({ hidden: true }),
     updateAll: createFakeElement({ dataset: { updatesFilter: 'all' } }),
     updateNew: createFakeElement({ dataset: { updatesFilter: 'new' } }),
-    updatesList: createFakeElement()
+    updatesList: createFakeElement({ dataset: options.updateLimit ? { updateLimit: options.updateLimit } : {} }),
+    stageDetail: createFakeElement(),
+    stageName: createFakeElement(),
+    nextDays: createFakeElement(),
+    nextName: createFakeElement(),
+    navMenu: createFakeElement(),
+    navToggle: createFakeElement()
   };
+  elements.navToggle.setAttribute('aria-expanded', 'false');
   const checkboxes = options.checkboxes || [];
   const selectorMap = new Map([
     ['#acknowledge-official-updates', elements.acknowledge],
@@ -146,10 +159,23 @@ function installFakePage(options = {}) {
     ['#refresh-official-updates', elements.refresh],
     ['#live-source-health', elements.sourceHealth],
     ['#official-updates-list', elements.updatesList],
+    ['#current-stage-detail', elements.stageDetail],
+    ['#current-stage-name', elements.stageName],
+    ['#next-stage-days', elements.nextDays],
+    ['#next-stage-name', elements.nextName],
+    ['#reset-progress', elements.reset],
     ['#storage-session-warning', elements.storageWarning]
   ]);
+  if (options.includeLiveConsole === false) {
+    selectorMap.delete('#live-updates-console');
+    selectorMap.delete('#refresh-official-updates');
+  }
+  if (options.includeNav) {
+    selectorMap.set('[data-site-nav-menu]', elements.navMenu);
+    selectorMap.set('[data-site-nav-toggle]', elements.navToggle);
+  }
   const selectorGroups = new Map([
-    ['[data-milestone-id]', []],
+    ['[data-milestone-id]', options.milestones || []],
     ['.task-check[data-check-id]', checkboxes],
     ['[data-filter]', []],
     ['[data-print]', []],
@@ -171,14 +197,16 @@ function installFakePage(options = {}) {
     },
     createElement() { return createFakeElement(); },
     createTextNode(textContent) { return { textContent: String(textContent) }; },
-    dispatch(type) {
-      (documentListeners.get(type) || []).forEach((listener) => listener({ type }));
+    dispatch(type, event = {}) {
+      (documentListeners.get(type) || []).forEach((listener) => listener({ type, ...event }));
     },
     querySelector(selector) { return selectorMap.get(selector) || null; },
     querySelectorAll(selector) { return selectorGroups.get(selector) || []; }
   };
   const fakeWindow = {
-    confirm: () => true,
+    confirm(message) {
+      return typeof options.confirm === 'function' ? options.confirm(message) : options.confirm !== false;
+    },
     fetch(url, request) {
       let resolve;
       let reject;
@@ -206,6 +234,13 @@ function installFakePage(options = {}) {
 
   global.document = fakeDocument;
   global.window = fakeWindow;
+  if (options.today) {
+    const fixedTime = new originalDate(`${options.today}T12:00:00`).valueOf();
+    global.Date = class FakeDate extends originalDate {
+      constructor(...args) { super(...(args.length ? args : [fixedTime])); }
+      static now() { return fixedTime; }
+    };
+  }
   delete require.cache[require.resolve('../app.js')];
   require('../app.js');
 
@@ -232,6 +267,7 @@ function installFakePage(options = {}) {
       fetchCalls.forEach((call) => call.reject(new Error('test cleanup')));
       await this.flush();
       delete require.cache[require.resolve('../app.js')];
+      global.Date = originalDate;
       if (hadWindow) global.window = originalWindow;
       else delete global.window;
       if (hadDocument) global.document = originalDocument;
@@ -248,6 +284,58 @@ async function withFakePage(options, assertion) {
     await page.restore();
   }
 }
+
+test('renders current stage from shared milestone data without timeline DOM', async () => {
+  await withFakePage({ includeLiveConsole: false, today: '2026-08-25' }, async (page) => {
+    assert.equal(page.fetchCalls.length, 0);
+    assert.equal(page.elements.stageName.textContent, '锁定专业基线');
+    assert.equal(page.elements.nextName.textContent, '招生章程与目录观察窗');
+  });
+});
+
+test('limits the compact homepage feed without truncating the full payload', async () => {
+  const snapshot = makeUpdatesPayload();
+  snapshot.updates = [1, 2, 3, 4].map((n) => ({
+    ...snapshot.updates[0], id: `notice-${n}`,
+    url: `https://gs.hainanu.edu.cn/info/1024/900${n}.htm`
+  }));
+  await withFakePage({ updateLimit: '3' }, async (page) => {
+    page.settle(page.fetchCalls[0], snapshot);
+    await page.flush();
+    assert.equal(page.elements.updatesList.children.length, 3);
+  });
+});
+
+test('opens the mobile site navigation and closes it on Escape', async () => {
+  await withFakePage({ includeNav: true }, async (page) => {
+    page.elements.navToggle.dispatch('click');
+    assert.equal(page.elements.navToggle.getAttribute('aria-expanded'), 'true');
+
+    page.document.dispatch('keydown', { key: 'Escape' });
+    assert.equal(page.elements.navToggle.getAttribute('aria-expanded'), 'false');
+    assert.equal(page.elements.navToggle.focusCalls, 1);
+  });
+});
+
+test('resets all registered checklist state only when the reset scope is all', async () => {
+  const checkbox = createFakeElement({ checked: false, dataset: { checkId: 'material-id' } });
+  const confirmations = [];
+  const storage = {
+    value: '{"program-academic":true,"material-id":true}',
+    getItem() { return this.value; },
+    setItem(key, value) { this.value = value; }
+  };
+  await withFakePage({
+    checkboxes: [checkbox], confirm: (message) => { confirmations.push(message); return true; },
+    includeLiveConsole: false, resetScope: 'all', storage
+  }, async (page) => {
+    page.elements.reset.dispatch('click');
+    assert.equal(confirmations[0], '确定清空全部 21 项已勾选进度吗？此操作无法撤销。');
+    assert.equal(checkbox.checked, false);
+    assert.equal(page.elements.progressCount.textContent, '0 / 21 项');
+    assert.equal(JSON.parse(storage.value)['program-academic'], false);
+  });
+});
 
 test('selects the active milestone and the next future milestone', () => {
   const { getTimelineState } = loadApp();
@@ -313,6 +401,26 @@ test('returns a rounded and bounded progress percentage', () => {
   assert.equal(calculateProgress(0, 0), 0);
   assert.equal(calculateProgress(-1, 8), 0);
   assert.equal(calculateProgress(12, 8), 100);
+});
+
+test('merges current-page checks without deleting other registered page state', () => {
+  const { mergeChecklistState } = loadApp();
+  assert.deepEqual(
+    mergeChecklistState(
+      { 'program-academic': true, 'stage-baseline': true, unknown: true },
+      { 'material-id': true, 'stage-baseline': false }
+    ),
+    { 'program-academic': true, 'stage-baseline': false, 'material-id': true }
+  );
+});
+
+test('counts global checklist progress against all 21 registered tasks', () => {
+  const { countChecklistProgress } = loadApp();
+  assert.deepEqual(countChecklistProgress({
+    'program-academic': true,
+    'stage-baseline': true,
+    'material-id': true
+  }), { completed: 3, total: 21, percent: 14 });
 });
 
 test('filters timeline items without mutating their order', () => {
@@ -832,13 +940,13 @@ test('falls back to visible session-only storage when local storage throws', asy
 test('sets printable checked and unchecked task states from live checkbox state', async () => {
   const checkedLabel = createFakeElement();
   const uncheckedLabel = createFakeElement();
-  const checked = createFakeElement({ checked: true, dataset: { checkId: 'complete' } });
-  const unchecked = createFakeElement({ checked: false, dataset: { checkId: 'pending' } });
+  const checked = createFakeElement({ checked: true, dataset: { checkId: 'program-academic' } });
+  const unchecked = createFakeElement({ checked: false, dataset: { checkId: 'stage-baseline' } });
   checked.label = checkedLabel;
   unchecked.label = uncheckedLabel;
 
   const printStorage = {
-    getItem() { return '{"complete":true,"pending":false}'; },
+    getItem() { return '{"program-academic":true,"stage-baseline":false}'; },
     setItem() {}
   };
   await withFakePage({ checkboxes: [checked, unchecked], storage: printStorage }, async () => {
@@ -853,7 +961,7 @@ test('sets printable checked and unchecked task states from live checkbox state'
 
 test('keeps checkbox progress and printable state usable when local storage throws', async () => {
   const label = createFakeElement();
-  const checkbox = createFakeElement({ checked: false, dataset: { checkId: 'session-only' } });
+  const checkbox = createFakeElement({ checked: false, dataset: { checkId: 'material-id' } });
   checkbox.label = label;
   const failingStorage = {
     getItem() { throw new Error('blocked'); },
@@ -861,14 +969,14 @@ test('keeps checkbox progress and printable state usable when local storage thro
   };
 
   await withFakePage({ checkboxes: [checkbox], storage: failingStorage }, async (page) => {
-    assert.equal(page.elements.progressCount.textContent, '0 / 1 项');
+    assert.equal(page.elements.progressCount.textContent, '0 / 21 项');
     assert.equal(label.getAttribute('data-print-state'), '未完成');
 
     checkbox.checked = true;
     checkbox.dispatch('change');
 
-    assert.equal(page.elements.progressCount.textContent, '1 / 1 项');
-    assert.equal(page.elements.progressText.textContent, '100%');
+    assert.equal(page.elements.progressCount.textContent, '1 / 21 项');
+    assert.equal(page.elements.progressText.textContent, '5%');
     assert.equal(label.getAttribute('data-print-state'), '已完成');
     assert.equal(page.elements.storageWarning.hidden, false);
   });

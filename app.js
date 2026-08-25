@@ -4,22 +4,30 @@
   const DAY_MS = 86_400_000;
   const STORAGE_KEY = 'hainanu-2027-kaoyan-progress-v1';
   const LAST_SEEN_UPDATES_KEY = 'hainanu-2027-kaoyan-last-seen-v1';
+  const CHECKLIST_IDS = Object.freeze([
+    'program-academic', 'program-computer', 'program-software',
+    'stage-baseline', 'stage-directory', 'stage-preapply', 'stage-apply', 'stage-confirm',
+    'stage-ticket', 'stage-exam-logistics', 'stage-retest-material', 'stage-retest-plan', 'stage-archive',
+    'material-id', 'material-student', 'material-photo', 'material-point', 'material-file', 'material-contact',
+    'material-special', 'material-backup'
+  ]);
+  const checklistIdSet = new Set(CHECKLIST_IDS);
 
   const milestones = [
-    { id: 'verify', start: '2026-07-02', end: '2026-09-14' },
-    { id: 'directory', start: '2026-09-15', end: '2026-09-30' },
-    { id: 'preapply', start: '2026-10-10', end: '2026-10-13' },
-    { id: 'apply', start: '2026-10-16', end: '2026-10-27' },
-    { id: 'confirm', start: '2026-10-28', end: '2026-11-15' },
-    { id: 'ticket', start: '2026-12-10', end: '2026-12-18' },
-    { id: 'exam', start: '2026-12-19', end: '2026-12-20' },
-    { id: 'score', start: '2027-02-20', end: '2027-02-28' },
-    { id: 'line', start: '2027-03-01', end: '2027-03-20' },
-    { id: 'retest', start: '2027-03-21', end: '2027-04-15' },
-    { id: 'adjust', start: '2027-04-01', end: '2027-04-30' },
-    { id: 'admit', start: '2027-04-15', end: '2027-05-15' },
-    { id: 'archive', start: '2027-05-01', end: '2027-07-31' },
-    { id: 'enrol', start: '2027-09-01', end: '2027-09-15' }
+    { id: 'verify', start: '2026-07-02', end: '2026-09-14', label: '锁定专业基线', action: '按 408 推进一轮复习，等待 2027 正式目录' },
+    { id: 'directory', start: '2026-09-15', end: '2026-09-30', label: '招生章程与目录观察窗', action: '逐字段核对专业、院系、科目、备注与计划' },
+    { id: 'preapply', start: '2026-10-10', end: '2026-10-13', label: '网上预报名', action: '完成一次全流程填报并下载报名信息表' },
+    { id: 'apply', start: '2026-10-16', end: '2026-10-27', label: '全国网上报名', action: '确认唯一有效报名信息并完成缴费' },
+    { id: 'confirm', start: '2026-10-28', end: '2026-11-15', label: '网上确认', action: '上传材料并看到审核通过结果' },
+    { id: 'ticket', start: '2026-12-10', end: '2026-12-18', label: '下载准考证', action: '打印多份并完成考点路线踩点' },
+    { id: 'exam', start: '2026-12-19', end: '2026-12-20', label: '全国硕士研究生初试', action: '按准考证时间参加政治、英语、数学与 408' },
+    { id: 'score', start: '2027-02-20', end: '2027-02-28', label: '初试成绩查询', action: '查分、保存成绩单并决定复试/调剂策略' },
+    { id: 'line', start: '2027-03-01', end: '2027-03-20', label: '国家线与复试名单', action: '核对 B 类国家线和学院复试要求' },
+    { id: 'retest', start: '2027-03-21', end: '2027-04-15', label: '复试', action: '完成资格审查、专业考核与面试' },
+    { id: 'adjust', start: '2027-04-01', end: '2027-04-30', label: '调剂窗口', action: '需要时通过研招网调剂系统填报并确认通知' },
+    { id: 'admit', start: '2027-04-15', end: '2027-05-15', label: '拟录取公示', action: '确认拟录取状态并留意体检、政审要求' },
+    { id: 'archive', start: '2027-05-01', end: '2027-07-31', label: '调档与通知书', action: '通过档案保管单位寄送材料并确认通知书地址' },
+    { id: 'enrol', start: '2027-09-01', end: '2027-09-15', label: '报到入学', action: '按录取通知完成报到与资格复核' }
   ];
 
   function toUtcDay(value) {
@@ -54,16 +62,33 @@
     return items.filter((item) => item.category === category);
   }
 
-  function safeReadChecks(storage, key) {
+  function safeReadChecks(storage, key, allowedIds) {
     try {
       const parsed = JSON.parse(storage.getItem(key) || '{}');
       if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') return {};
-      return Object.fromEntries(
-        Object.entries(parsed).filter(([, value]) => typeof value === 'boolean')
-      );
+      const allowedIdSet = allowedIds ? new Set(allowedIds) : null;
+      return Object.fromEntries(Object.entries(parsed).filter(([id, value]) => (
+        typeof value === 'boolean' && (!allowedIdSet || allowedIdSet.has(id))
+      )));
     } catch {
       return {};
     }
+  }
+
+  function mergeChecklistState(stored, pageValues) {
+    const filteredStored = stored && typeof stored === 'object' ? stored : {};
+    const filteredPageValues = pageValues && typeof pageValues === 'object' ? pageValues : {};
+    return Object.fromEntries(
+      Object.entries({ ...filteredStored, ...filteredPageValues }).filter(([id, value]) => (
+        checklistIdSet.has(id) && typeof value === 'boolean'
+      ))
+    );
+  }
+
+  function countChecklistProgress(state) {
+    const filteredState = mergeChecklistState(state, {});
+    const completed = CHECKLIST_IDS.filter((id) => filteredState[id] === true).length;
+    return { completed, total: CHECKLIST_IDS.length, percent: calculateProgress(completed, CHECKLIST_IDS.length) };
   }
 
   function getLocalDateString(date) {
@@ -400,16 +425,21 @@
       const displayUpdates = aggregateUpdatesForDisplay(updates, unseenIds, acknowledgedUpdateIds);
       const displayNewIds = new Set(displayUpdates.filter((update) => update.isNew).map((update) => update.id));
       const selection = selectUpdatesForDisplay(displayUpdates, displayNewIds, new Set(), updateView);
+      const updateLimit = /^[1-9]\d*$/.test(updatesList.dataset.updateLimit || '')
+        ? Number(updatesList.dataset.updateLimit)
+        : null;
+      const renderedUpdates = updateLimit ? selection.updates.slice(0, updateLimit) : selection.updates;
+      const renderedNewIds = selection.newIds.filter((id) => renderedUpdates.some((update) => update.id === id));
       const listRenderKey = createUpdatesSnapshotKey({
         updateView,
-        updates: selection.updates,
-        newIds: selection.newIds
+        updates: renderedUpdates,
+        newIds: renderedNewIds
       });
       if (listRenderKey === renderedUpdatesKey) return;
       renderedUpdatesKey = listRenderKey;
       updatesList.replaceChildren();
 
-      if (!selection.updates.length) {
+      if (!renderedUpdates.length) {
         const empty = createTextElement('li', 'official-update-empty');
         empty.append(
           createTextElement('strong', '', updateView === 'new' ? '暂时没有未读新公告' : '暂未读到相关通知'),
@@ -421,8 +451,8 @@
         return;
       }
 
-      const selectedNewIds = new Set(selection.newIds);
-      selection.updates.forEach((update) => {
+      const selectedNewIds = new Set(renderedNewIds);
+      renderedUpdates.forEach((update) => {
         const item = document.createElement('li');
         const link = createTextElement('a', 'official-update-link');
         link.href = update.url;
@@ -636,13 +666,34 @@
     loadUpdates(false);
   }
 
+  function initSiteNavigation() {
+    const toggle = document.querySelector('[data-site-nav-toggle]');
+    const menu = document.querySelector('[data-site-nav-menu]');
+    if (!toggle || !menu) return;
+
+    function setExpanded(expanded) {
+      toggle.setAttribute('aria-expanded', String(expanded));
+      menu.classList.toggle('is-open', expanded);
+    }
+
+    toggle.addEventListener('click', () => {
+      setExpanded(toggle.getAttribute('aria-expanded') !== 'true');
+    });
+    document.addEventListener('keydown', (event) => {
+      if (event.key !== 'Escape' || toggle.getAttribute('aria-expanded') !== 'true') return;
+      setExpanded(false);
+      toggle.focus();
+    });
+  }
+
   function initPage() {
+    initSiteNavigation();
     const timelineElements = Array.from(document.querySelectorAll('[data-milestone-id]'));
     const state = getTimelineState(milestones, getLocalDateString(new Date()));
-    const activeElements = state.activeIds
-      .map((id) => timelineElements.find((element) => element.dataset.milestoneId === id))
+    const activeMilestones = state.activeIds
+      .map((id) => milestones.find((milestone) => milestone.id === id))
       .filter(Boolean);
-    const nextElement = timelineElements.find((element) => element.dataset.milestoneId === state.nextId);
+    const nextMilestone = milestones.find((milestone) => milestone.id === state.nextId);
 
     timelineElements.forEach((element) => {
       const isActive = state.activeIds.includes(element.dataset.milestoneId);
@@ -656,13 +707,13 @@
     const nextName = document.querySelector('#next-stage-name');
     const nextDays = document.querySelector('#next-stage-days');
 
-    if (stageName) stageName.textContent = activeElements.map((element) => element.dataset.label).join(' / ') || '等待下一节点';
+    if (stageName) stageName.textContent = activeMilestones.map((milestone) => milestone.label).join(' / ') || '等待下一节点';
     if (stageDetail) {
-      stageDetail.textContent = activeElements.length
-        ? activeElements.map((element) => element.dataset.action || '按时间轴完成当前行动').join('；')
+      stageDetail.textContent = activeMilestones.length
+        ? activeMilestones.map((milestone) => milestone.action || '按时间轴完成当前行动').join('；')
         : '查看时间轴确认最近的官方节点';
     }
-    if (nextName) nextName.textContent = nextElement?.dataset.label || '本周期已无后续节点';
+    if (nextName) nextName.textContent = nextMilestone?.label || '本周期已无后续节点';
     if (nextDays) {
       nextDays.textContent = Number.isFinite(state.daysToNext)
         ? `${state.daysToNext} 天`
@@ -676,16 +727,16 @@
       progressStorage.getItem(STORAGE_KEY);
     } catch {
       // Some restricted or file origins block access at the property getter.
+      progressStorage = null;
       showSessionStorageWarning();
     }
-    const saved = safeReadChecks(progressStorage, STORAGE_KEY);
+    let checklistState = safeReadChecks(progressStorage, STORAGE_KEY, CHECKLIST_IDS);
     checkboxes.forEach((checkbox) => {
-      checkbox.checked = saved[checkbox.dataset.checkId] === true;
+      checkbox.checked = checklistState[checkbox.dataset.checkId] === true;
     });
 
     function renderProgress() {
-      const completed = checkboxes.filter((checkbox) => checkbox.checked).length;
-      const percent = calculateProgress(completed, checkboxes.length);
+      const { completed, total, percent } = countChecklistProgress(checklistState);
       const bar = document.querySelector('#progress-bar');
       const text = document.querySelector('#progress-text');
       const count = document.querySelector('#progress-count');
@@ -695,32 +746,50 @@
         bar.parentElement?.setAttribute('aria-valuenow', String(percent));
       }
       if (text) text.textContent = `${percent}%`;
-      if (count) count.textContent = `${completed} / ${checkboxes.length} 项`;
+      if (count) count.textContent = `${completed} / ${total} 项`;
       checkboxes.forEach((checkbox) => {
         checkbox.closest('label')?.setAttribute('data-print-state', checkbox.checked ? '已完成' : '未完成');
       });
     }
 
-    function persistChecks() {
-      const value = Object.fromEntries(
+    function persistChecks(pageValues = Object.fromEntries(
         checkboxes.map((checkbox) => [checkbox.dataset.checkId, checkbox.checked])
-      );
-      try {
-        progressStorage?.setItem(STORAGE_KEY, JSON.stringify(value));
-      } catch {
-        // Storage may be disabled in private or hardened browser modes.
-        showSessionStorageWarning();
+      )) {
+      if (!progressStorage) {
+        checklistState = mergeChecklistState(checklistState, pageValues);
+      } else {
+        try {
+          progressStorage.getItem(STORAGE_KEY);
+          checklistState = mergeChecklistState(
+            safeReadChecks(progressStorage, STORAGE_KEY, CHECKLIST_IDS),
+            pageValues
+          );
+          progressStorage.setItem(STORAGE_KEY, JSON.stringify(checklistState));
+        } catch {
+          checklistState = mergeChecklistState(checklistState, pageValues);
+          progressStorage = null;
+          // Storage may be disabled in private or hardened browser modes.
+          showSessionStorageWarning();
+        }
       }
       renderProgress();
     }
 
-    checkboxes.forEach((checkbox) => checkbox.addEventListener('change', persistChecks));
+    checkboxes.forEach((checkbox) => checkbox.addEventListener('change', () => persistChecks()));
     renderProgress();
 
     const resetButton = document.querySelector('#reset-progress');
     resetButton?.addEventListener('click', () => {
-      if (!window.confirm('确定清空本页所有已勾选进度吗？此操作无法撤销。')) return;
+      const resetAll = resetButton.dataset.resetScope === 'all';
+      const confirmation = resetAll
+        ? '确定清空全部 21 项已勾选进度吗？此操作无法撤销。'
+        : '确定清空本页所有已勾选进度吗？此操作无法撤销。';
+      if (!window.confirm(confirmation)) return;
       checkboxes.forEach((checkbox) => { checkbox.checked = false; });
+      if (resetAll) {
+        persistChecks(Object.fromEntries(CHECKLIST_IDS.map((id) => [id, false])));
+        return;
+      }
       persistChecks();
     });
 
@@ -768,6 +837,8 @@
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
       calculateProgress,
+      countChecklistProgress,
+      mergeChecklistState,
       aggregateUpdatesForDisplay,
       filterTimeline,
       formatFreshness,
