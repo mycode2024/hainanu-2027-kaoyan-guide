@@ -1,6 +1,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
 const http = require('node:http');
+const os = require('node:os');
 const path = require('node:path');
 
 function loadServer() {
@@ -163,6 +165,55 @@ test('keeps the existing static guide available with HEAD support', async (t) =>
   const head = await fetch(`${base}/styles.css`, { method: 'HEAD' });
   assert.equal(head.status, 200);
   assert.equal(await head.text(), '');
+});
+
+test('serves each named guide page through canonical and extension aliases', async (t) => {
+  const { createHttpServer } = loadServer();
+  const siteRoot = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hnu-guide-routes-'));
+  t.after(() => fs.promises.rm(siteRoot, { recursive: true, force: true }));
+
+  const files = [
+    ['index.html', 'page-home'],
+    ['programs.html', 'page-programs'],
+    ['timeline.html', 'page-timeline'],
+    ['application.html', 'page-application'],
+    ['updates.html', 'page-updates']
+  ];
+  await Promise.all(files.map(([file, marker]) => fs.promises.writeFile(
+    path.join(siteRoot, file), `<html><body>${marker}</body></html>`, 'utf8'
+  )));
+
+  const server = createHttpServer({ siteRoot, updateService: createServiceDouble() });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const pages = [
+    ['/', 'index.html', 'page-home'],
+    ['/programs', 'programs.html', 'page-programs'],
+    ['/programs.html', 'programs.html', 'page-programs'],
+    ['/timeline', 'timeline.html', 'page-timeline'],
+    ['/timeline.html', 'timeline.html', 'page-timeline'],
+    ['/application', 'application.html', 'page-application'],
+    ['/application.html', 'application.html', 'page-application'],
+    ['/updates', 'updates.html', 'page-updates'],
+    ['/updates.html', 'updates.html', 'page-updates']
+  ];
+
+  for (const [pathname, file, marker] of pages) {
+    const response = await fetch(`${base}${pathname}`);
+    assert.equal(response.status, 200, `${pathname} should serve ${file}`);
+    assert.equal(response.headers.get('content-type'), 'text/html; charset=utf-8');
+    assert.equal(response.headers.get('cache-control'), 'no-store');
+    assert.match(await response.text(), new RegExp(marker));
+
+    const head = await fetch(`${base}${pathname}`, { method: 'HEAD' });
+    assert.equal(head.status, 200, `${pathname} HEAD should succeed`);
+    assert.equal(await head.text(), '');
+  }
+
+  const wrongMethod = await fetch(`${base}/timeline`, { method: 'POST' });
+  assert.equal(wrongMethod.status, 405);
+  assert.equal(wrongMethod.headers.get('allow'), 'GET, HEAD');
 });
 
 test('rejects unsupported API methods and does not expose project internals', async (t) => {

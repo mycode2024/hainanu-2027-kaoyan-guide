@@ -5,6 +5,14 @@ const path = require('node:path');
 const PUBLIC_FILES = new Map([
   ['/', 'index.html'],
   ['/index.html', 'index.html'],
+  ['/programs', 'programs.html'],
+  ['/programs.html', 'programs.html'],
+  ['/timeline', 'timeline.html'],
+  ['/timeline.html', 'timeline.html'],
+  ['/application', 'application.html'],
+  ['/application.html', 'application.html'],
+  ['/updates', 'updates.html'],
+  ['/updates.html', 'updates.html'],
   ['/styles.css', 'styles.css'],
   ['/app.js', 'app.js']
 ]);
