@@ -4,6 +4,7 @@ data/
 node_modules/
 coverage/
 npm-debug.log*
+.worktrees/
 
 .DS_Store
 Thumbs.db
