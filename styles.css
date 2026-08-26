@@ -151,6 +151,7 @@ img { max-width: 100%; }
   display: inline-flex;
   gap: 13px;
   align-items: center;
+  min-height: 44px;
   color: var(--white);
   text-decoration: none;
 }
@@ -308,7 +309,7 @@ img { max-width: 100%; }
 .progress-meta strong { color: var(--ink); }
 .progress-track { height: 8px; margin-top: 9px; overflow: hidden; background: #e3eae7; border-radius: 99px; }
 .progress-track span { display: block; width: 0; height: 100%; background: var(--teal); border-radius: inherit; transition: width .35s ease; }
-.text-button { margin: 14px 0 0; padding: 0; border: 0; color: var(--ink-soft); background: transparent; cursor: pointer; font-size: .72rem; text-decoration: underline; text-underline-offset: 3px; }
+.text-button { display: inline-flex; min-height: 44px; align-items: center; margin: 14px 0 0; padding: 8px 0; border: 0; color: var(--ink-soft); background: transparent; cursor: pointer; font-size: .72rem; text-decoration: underline; text-underline-offset: 3px; }
 
 .truth-banner {
   position: relative;
@@ -636,7 +637,7 @@ main { min-width: 0; }
 
 .live-console-actions { display: flex; flex: 0 0 auto; gap: 9px; align-items: center; }
 .live-new-count { padding: 7px 10px; color: #073a3d; background: #77e3c8; border-radius: 999px; font-size: .65rem; font-weight: 900; white-space: nowrap; }
-.live-refresh-button { min-height: 40px; border-color: rgba(255,255,255,.23); color: var(--white); background: rgba(255,255,255,.07); font-size: .75rem; }
+.live-refresh-button { border-color: rgba(255,255,255,.23); color: var(--white); background: rgba(255,255,255,.07); font-size: .75rem; }
 .live-refresh-button:hover { border-color: rgba(255,255,255,.48); background: rgba(255,255,255,.13); }
 .live-refresh-button:disabled { cursor: not-allowed; opacity: .52; transform: none; }
 .live-update-controls { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
@@ -649,7 +650,7 @@ main { min-width: 0; }
 .live-metrics dt { color: rgba(255,255,255,.48); font-size: .62rem; }
 .live-metrics dd { margin: 4px 0 0; overflow-wrap: anywhere; font-size: .78rem; font-weight: 800; }
 .live-source-health { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
-.source-health-chip { display: inline-flex; align-items: center; gap: 7px; padding: 6px 10px; color: rgba(255,255,255,.72); background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.1); border-radius: 999px; font-size: .64rem; text-decoration: none; }
+.source-health-chip { display: inline-flex; min-height: 44px; align-items: center; gap: 7px; padding: 6px 10px; color: rgba(255,255,255,.72); background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.1); border-radius: 999px; font-size: .64rem; text-decoration: none; }
 .source-health-chip:hover { color: var(--white); border-color: rgba(255,255,255,.34); }
 .source-health-dot { width: 6px; height: 6px; border-radius: 50%; background: #ffc857; }
 .source-health-chip.is-ok .source-health-dot { background: #77e3c8; }
