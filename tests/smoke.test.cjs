@@ -471,7 +471,7 @@ try {
   createServer = undefined;
 }
 
-test('serves the complete offline site with correct content types', async (t) => {
+test('serves the complete offline site and five guide pages with shared navigation', async (t) => {
   assert.equal(typeof createServer, 'function', 'createServer must be exported');
 
   const root = path.resolve(__dirname, '..');
@@ -481,13 +481,50 @@ test('serves the complete offline site with correct content types', async (t) =>
 
   const address = server.address();
   const base = `http://127.0.0.1:${address.port}`;
-  const cases = [
-    ['/', 'text/html; charset=utf-8', '海南大学 2027 计算机 408 考研航线图'],
+  const pages = [
+    ['/', '首页', 'data-page="home"'],
+    ['/programs.html', '专业与备考', 'data-page="programs"'],
+    ['/timeline.html', '全年时间轴', 'data-page="timeline"'],
+    ['/application.html', '报名材料', 'data-page="application"'],
+    ['/updates.html', '官方动态', 'data-page="updates"']
+  ];
+  const expectedTaskIds = [
+    'program-academic', 'program-computer', 'program-software',
+    'stage-baseline', 'stage-directory', 'stage-preapply', 'stage-apply', 'stage-confirm',
+    'stage-ticket', 'stage-exam-logistics', 'stage-retest-material', 'stage-retest-plan', 'stage-archive',
+    'material-id', 'material-student', 'material-photo', 'material-point', 'material-file', 'material-contact',
+    'material-special', 'material-backup'
+  ].sort();
+  const servedHtml = [];
+
+  for (const [pathname, label, marker] of pages) {
+    const response = await fetch(`${base}${pathname}`);
+    assert.equal(response.status, 200, `${pathname} must return 200`);
+    assert.equal(response.headers.get('content-type'), 'text/html; charset=utf-8');
+    const html = await response.text();
+    servedHtml.push(html);
+    assert.match(html, new RegExp(marker));
+    assert.equal((html.match(/<h1\b/g) || []).length, 1, `${pathname} must contain exactly one h1`);
+    assert.match(html, /<link\b[^>]*href="\/styles\.css"/);
+    assert.match(html, /<script\b[^>]*src="\/app\.js"/);
+    assert.match(
+      html,
+      new RegExp(`<a\\b(?=[^>]*href="${pathname}")(?=[^>]*aria-current="page")[^>]*>\\s*${label}\\s*</a>`),
+      `${pathname} must mark ${label} as the current global navigation link`
+    );
+  }
+
+  const combinedHtml = servedHtml.join('\n');
+  const taskIds = [...combinedHtml.matchAll(/\bdata-check-id="([^"]+)"/g)].map((match) => match[1]);
+  assert.equal(taskIds.length, 21, 'task IDs must occur exactly once across the served guide pages');
+  assert.equal(new Set(taskIds).size, 21, 'task IDs must be unique across the served guide pages');
+  assert.deepEqual(taskIds.slice().sort(), expectedTaskIds);
+  assert.match(servedHtml[0], /\bdata-update-limit="3"/, 'the homepage must cap its compact official feed at three items');
+
+  for (const [pathname, contentType, marker] of [
     ['/styles.css', 'text/css; charset=utf-8', ':root'],
     ['/app.js', 'text/javascript; charset=utf-8', 'getTimelineState']
-  ];
-
-  for (const [pathname, contentType, marker] of cases) {
+  ]) {
     const response = await fetch(`${base}${pathname}`);
     assert.equal(response.status, 200, `${pathname} must return 200`);
     assert.equal(response.headers.get('content-type'), contentType);

@@ -1017,10 +1017,12 @@ test('acknowledges new notices in the current session when local storage cannot 
 test('every static printable task label starts with an honest unfinished state', () => {
   const fs = require('node:fs');
   const path = require('node:path');
-  const html = fs.readFileSync(path.resolve(__dirname, '..', 'index.html'), 'utf8');
+  const html = ['index.html', 'programs.html', 'timeline.html', 'application.html', 'updates.html']
+    .map((fileName) => fs.readFileSync(path.resolve(__dirname, '..', fileName), 'utf8'))
+    .join('\n');
   const taskLabels = [...html.matchAll(/<label\b([^>]*)>\s*<input\b[^>]*class="task-check"/g)];
 
-  assert.ok(taskLabels.length > 0, 'static guide must contain printable task labels');
+  assert.equal(taskLabels.length, 21, 'the five static guide pages must contain all 21 printable task labels exactly once');
   for (const [, attributes] of taskLabels) {
     assert.match(attributes, /\bdata-print-state="未完成"/);
   }
