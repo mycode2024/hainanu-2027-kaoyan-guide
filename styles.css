@@ -829,6 +829,7 @@ main { min-width: 0; }
   .site-header::before, .site-header::after { display: none; }
   .topbar { border-bottom-color: #bbb; }
   .brand, .hero-copy .eyebrow, .hero-copy h1 em { color: #111; }
+  .page-hero .eyebrow, .page-hero > div > p:last-child { color: #444; }
   .brand-mark { color: #111; border-color: #555; }
   .brand small, .hero-lead { color: #444; }
   .hero-shell { display: block; min-height: 0; padding: 30px 0; }

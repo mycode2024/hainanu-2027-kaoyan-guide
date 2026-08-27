@@ -15,18 +15,31 @@ function createFakeElement(options = {}) {
   const element = {
     attributes: {},
     children: [],
-    className: '',
+    className: options.className || '',
     checked: options.checked === true,
     dataset: { ...(options.dataset || {}) },
     disabled: false,
     hidden: options.hidden === true,
+    id: options.id || '',
     focusCalls: 0,
     parentElement: options.parentElement || null,
     replaceChildrenCalls: 0,
     style: {},
     textContent: options.textContent || '',
     title: '',
-    classList: { toggle() {} },
+    classList: {
+      contains(className) {
+        return element.className.split(/\s+/).filter(Boolean).includes(className);
+      },
+      toggle(className, force) {
+        const classes = new Set(element.className.split(/\s+/).filter(Boolean));
+        const enabled = force === undefined ? !classes.has(className) : Boolean(force);
+        if (enabled) classes.add(className);
+        else classes.delete(className);
+        element.className = [...classes].join(' ');
+        return enabled;
+      }
+    },
     addEventListener(type, listener) {
       if (!listeners.has(type)) listeners.set(type, []);
       listeners.get(type).push(listener);
@@ -107,12 +120,15 @@ function collectText(element) {
 
 function installFakePage(options = {}) {
   const originalDate = global.Date;
+  const originalIntersectionObserver = global.IntersectionObserver;
   const originalWindow = global.window;
   const originalDocument = global.document;
+  const hadIntersectionObserver = Object.hasOwn(global, 'IntersectionObserver');
   const hadWindow = Object.hasOwn(global, 'window');
   const hadDocument = Object.hasOwn(global, 'document');
   const timers = [];
   const fetchCalls = [];
+  const intersectionObservers = [];
   const documentListeners = new Map();
   let timerId = 0;
 
@@ -179,8 +195,12 @@ function installFakePage(options = {}) {
     ['.task-check[data-check-id]', checkboxes],
     ['[data-filter]', []],
     ['[data-print]', []],
-    ['.section-nav a', []],
-    ['main section[id]', []],
+    ['.section-nav a', options.sectionNavLinks || []],
+    ['.section-nav a[href^="#"], .page-toc a[href^="#"]', [
+      ...(options.sectionNavLinks || []),
+      ...(options.pageTocLinks || [])
+    ]],
+    ['main section[id]', options.sections || []],
     ['[data-updates-filter]', [elements.updateAll, elements.updateNew]]
   ]);
   const storage = options.storage || {
@@ -232,6 +252,21 @@ function installFakePage(options = {}) {
     }
   };
 
+  if (options.includeIntersectionObserver) {
+    class FakeIntersectionObserver {
+      constructor(callback, observerOptions) {
+        this.callback = callback;
+        this.observerOptions = observerOptions;
+        this.observed = [];
+        intersectionObservers.push(this);
+      }
+      observe(target) { this.observed.push(target); }
+      trigger(entries) { this.callback(entries, this); }
+    }
+    fakeWindow.IntersectionObserver = FakeIntersectionObserver;
+    global.IntersectionObserver = FakeIntersectionObserver;
+  }
+
   global.document = fakeDocument;
   global.window = fakeWindow;
   if (options.today) {
@@ -249,6 +284,7 @@ function installFakePage(options = {}) {
     document: fakeDocument,
     elements,
     fetchCalls,
+    intersectionObservers,
     settle(call, payload = makeUpdatesPayload()) {
       call.resolve({ ok: true, json: async () => payload });
     },
@@ -268,6 +304,8 @@ function installFakePage(options = {}) {
       await this.flush();
       delete require.cache[require.resolve('../app.js')];
       global.Date = originalDate;
+      if (hadIntersectionObserver) global.IntersectionObserver = originalIntersectionObserver;
+      else delete global.IntersectionObserver;
       if (hadWindow) global.window = originalWindow;
       else delete global.window;
       if (hadDocument) global.document = originalDocument;
@@ -314,6 +352,37 @@ test('opens the mobile site navigation and closes it on Escape', async () => {
     page.document.dispatch('keydown', { key: 'Escape' });
     assert.equal(page.elements.navToggle.getAttribute('aria-expanded'), 'false');
     assert.equal(page.elements.navToggle.focusCalls, 1);
+  });
+});
+
+test('marks the intersecting page-toc hash link as the current location and clears the prior link', async () => {
+  const firstLink = createFakeElement();
+  firstLink.setAttribute('href', '#programs');
+  const secondLink = createFakeElement();
+  secondLink.setAttribute('href', '#exam');
+  const firstSection = createFakeElement({ id: 'programs' });
+  const secondSection = createFakeElement({ id: 'exam' });
+
+  await withFakePage({
+    includeIntersectionObserver: true,
+    includeLiveConsole: false,
+    pageTocLinks: [firstLink, secondLink],
+    sections: [firstSection, secondSection]
+  }, async (page) => {
+    assert.equal(page.intersectionObservers.length, 1);
+    const [observer] = page.intersectionObservers;
+    assert.deepEqual(observer.observed, [firstSection, secondSection]);
+
+    observer.trigger([{ target: firstSection, isIntersecting: true }]);
+    assert.equal(firstLink.classList.contains('is-active'), true);
+    assert.equal(firstLink.getAttribute('aria-current'), 'location');
+    assert.equal(secondLink.getAttribute('aria-current'), null);
+
+    observer.trigger([{ target: secondSection, isIntersecting: true }]);
+    assert.equal(firstLink.classList.contains('is-active'), false);
+    assert.equal(firstLink.getAttribute('aria-current'), null);
+    assert.equal(secondLink.classList.contains('is-active'), true);
+    assert.equal(secondLink.getAttribute('aria-current'), 'location');
   });
 });
 

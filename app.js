@@ -815,7 +815,7 @@
       button.addEventListener('click', () => window.print());
     });
 
-    const navLinks = Array.from(document.querySelectorAll('.section-nav a'));
+    const navLinks = Array.from(document.querySelectorAll('.section-nav a[href^="#"], .page-toc a[href^="#"]'));
     if ('IntersectionObserver' in window) {
       const observer = new IntersectionObserver((entries) => {
         entries.forEach((entry) => {
