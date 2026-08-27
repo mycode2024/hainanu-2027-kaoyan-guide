@@ -6,8 +6,8 @@
   "main": "server.cjs",
   "scripts": {
     "start": "node server.cjs",
-    "test": "node --test tests/app.test.cjs tests/official-scraper.test.cjs tests/server.test.cjs tests/smoke.test.cjs tests/update-service.test.cjs",
-    "check": "node --check server.cjs && node --check app.js && node --check src/http-app.cjs && node --check src/official-scraper.cjs && node --check src/update-service.cjs && node --test tests/app.test.cjs tests/official-scraper.test.cjs tests/server.test.cjs tests/smoke.test.cjs tests/update-service.test.cjs"
+    "test": "node --test tests/app.test.cjs tests/official-scraper.test.cjs tests/server.test.cjs tests/smoke.test.cjs tests/styles.test.cjs tests/update-service.test.cjs",
+    "check": "node --check server.cjs && node --check app.js && node --check src/http-app.cjs && node --check src/official-scraper.cjs && node --check src/update-service.cjs && node --test tests/app.test.cjs tests/official-scraper.test.cjs tests/server.test.cjs tests/smoke.test.cjs tests/styles.test.cjs tests/update-service.test.cjs"
   },
   "engines": {
     "node": ">=18"
