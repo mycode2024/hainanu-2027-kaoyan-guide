@@ -265,6 +265,98 @@ test('manual refresh preserves the actual next automatic timer deadline', async 
   assert.equal((await service.refresh()).nextRefreshAt, '2026-08-22T10:00:00.000Z');
 });
 
+test('a refresh finishing after an automatic tick keeps the next automatic deadline', async () => {
+  const { createUpdateService } = loadService();
+  const store = createMemoryStore();
+  let currentTime = new Date('2026-08-22T04:00:00.000Z');
+  let timerCallback;
+  let releaseFetch;
+  const service = createUpdateService({
+    sources: [sources[0]],
+    fetchImpl: (url) => new Promise((resolve) => {
+      releaseFetch = () => resolve(makeResponse(url, htmlByHost[new URL(url).hostname]));
+    }),
+    cacheStore: store,
+    now: () => currentTime,
+    refreshIntervalMs: 21_600_000,
+    setIntervalImpl(callback) { timerCallback = callback; return { unref() {} }; },
+    clearIntervalImpl() {}
+  });
+
+  await service.initialize();
+  service.startAutoRefresh();
+  const refresh = service.refresh();
+  await new Promise((resolve) => setImmediate(resolve));
+
+  currentTime = new Date('2026-08-22T10:00:00.000Z');
+  timerCallback();
+  releaseFetch();
+  const snapshot = await refresh;
+
+  assert.equal(snapshot.nextRefreshAt, '2026-08-22T16:00:00.000Z');
+});
+test('a refresh finishing after a cache-write overlap keeps the next automatic deadline', async () => {
+  const { createUpdateService } = loadService();
+  let currentTime = new Date('2026-08-22T04:00:00.000Z');
+  let timerCallback;
+  let releaseSave;
+  const service = createUpdateService({
+    sources: [sources[0]],
+    fetchImpl: async (url) => makeResponse(url, htmlByHost[new URL(url).hostname]),
+    cacheStore: {
+      async load() { return null; },
+      save() {
+        return new Promise((resolve) => { releaseSave = resolve; });
+      }
+    },
+    now: () => currentTime,
+    refreshIntervalMs: 21_600_000,
+    setIntervalImpl(callback) { timerCallback = callback; return { unref() {} }; },
+    clearIntervalImpl() {}
+  });
+
+  await service.initialize();
+  service.startAutoRefresh();
+  const refresh = service.refresh();
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(typeof releaseSave, 'function');
+  currentTime = new Date('2026-08-22T10:00:00.000Z');
+  timerCallback();
+  releaseSave();
+  const snapshot = await refresh;
+
+  assert.equal(snapshot.nextRefreshAt, '2026-08-22T16:00:00.000Z');
+});
+
+test('a due refresh triggered by a snapshot read never publishes a past next-refresh deadline', async () => {
+  const { createUpdateService } = loadService();
+  const store = createMemoryStore();
+  let currentTime = new Date('2026-08-22T04:00:00.000Z');
+  let timerCallback;
+  const service = createUpdateService({
+    sources,
+    fetchImpl: async (url) => makeResponse(url, htmlByHost[new URL(url).hostname]),
+    cacheStore: store,
+    now: () => currentTime,
+    refreshIntervalMs: 21_600_000,
+    setIntervalImpl(callback) { timerCallback = callback; return { unref() {} }; },
+    clearIntervalImpl() {}
+  });
+
+  await service.initialize();
+  service.startAutoRefresh();
+  assert.equal(typeof timerCallback, 'function');
+
+  // The clock passes the timer deadline before the tick has a chance to run.
+  currentTime = new Date('2026-08-22T11:00:00.000Z');
+  const due = service.refreshIfDue();
+  assert.equal(due.started, true);
+  const snapshot = await due.promise;
+
+  assert.ok(Date.parse(snapshot.nextRefreshAt) > Date.parse(snapshot.fetchedAt));
+});
+
 test('rejects an upstream redirect that leaves Hainan University official domains', async () => {
   const { createUpdateService } = loadService();
   const cached = {
@@ -432,7 +524,7 @@ test('retries one transient source failure and records the successful second att
   assert.equal(snapshot.status, 'fresh');
   assert.equal(snapshot.sources[0].attempts, 2);
   assert.equal(snapshot.sources[0].lastSuccessAt, '2026-08-23T04:00:00.000Z');
-  assert.equal(snapshot.nextRefreshAt, '2026-08-23T05:00:00.000Z');
+  assert.equal(snapshot.nextRefreshAt, '2026-08-23T04:10:00.000Z');
   assert.equal(attempts, 2);
 });
 
@@ -653,6 +745,52 @@ test('each drift gate retries once then preserves the trusted source cache as de
       assert.equal(store.writes.length, 0);
     });
   }
+});
+
+test('a legitimate prune of old notices does not trip the drift gate', async () => {
+  const { createUpdateService } = loadService();
+  const makeUpdate = (index, date) => ({
+    id: `legacy-${index}`,
+    contentHash: `hash-${index}`,
+    title: `海南大学2026年硕士研究生招生简章第${index}号`,
+    date,
+    url: `https://gs.hainanu.edu.cn/info/1024/${8000 + index}.htm`,
+    source: sources[0].name,
+    sourceId: sources[0].id,
+    category: '简章目录',
+    isTarget2027: false,
+    isImportant: true,
+    discoveredAt: '2026-03-01T04:00:00.000Z'
+  });
+  const card = (path, title, date) => `<li><a href="${path}">${title}</a><span>${date}</span></li>`;
+  const prior = Array.from({ length: 10 }, (_, index) => makeUpdate(index, '2026-03-01'));
+  const html = Array.from({ length: 3 }, (_, index) => (
+    card(`/info/1024/${8000 + index}.htm`, `海南大学2026年硕士研究生招生简章第${index}号`, '2026-08-01')
+  )).join('');
+  let calls = 0;
+  const store = createMemoryStore({
+    schemaVersion: 2,
+    fetchedAt: '2026-08-01T04:00:00.000Z',
+    lastSuccessAt: '2026-08-01T04:00:00.000Z',
+    sources: [{ id: sources[0].id, lastSuccessAt: '2026-08-01T04:00:00.000Z' }],
+    updates: prior
+  });
+  const service = createUpdateService({
+    sources: [sources[0]],
+    fetchImpl: async (url) => { calls += 1; return makeResponse(url, html); },
+    cacheStore: store,
+    now: () => new Date('2026-08-24T04:00:00.000Z')
+  });
+
+  await service.initialize();
+  const snapshot = await service.refresh();
+
+  assert.equal(calls, 1);
+  assert.equal(snapshot.sources[0].ok, true);
+  assert.equal(snapshot.status, 'fresh');
+  assert.equal(snapshot.updates.length, 10, '3 fresh notices plus the 7 pruned ones kept as missing history');
+  assert.equal(snapshot.updates.filter((update) => update.missingSince).length, 7);
+  assert.equal(store.writes.length, 1);
 });
 
 test('same source URL title edit keeps one record and reports an update rather than a discovery', async () => {
@@ -928,6 +1066,18 @@ test('file cache recovers a corrupt primary from backup and exposes unrecoverabl
   assert.equal(failed.status, 'seed');
   assert.deepEqual(failed.updates, []);
   assert.match(failed.error, /缓存.*损坏/);
+});
+
+test('file cache reports a missing primary separately when the backup is also broken', async (t) => {
+  const { createFileCacheStore } = loadService();
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'hnu-cache-missing-'));
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  const cachePath = path.join(directory, 'updates.json');
+  await fs.writeFile(`${cachePath}.bak`, '{broken backup', 'utf8');
+
+  await assert.rejects(createFileCacheStore(cachePath).load(), (error) => (
+    error.code === 'CACHE_CORRUPTION' && /主缓存缺失.*备份.*损坏/.test(error.message)
+  ));
 });
 
 test('recovered cache never lets a corrupt primary overwrite the only trusted backup', async (t) => {
@@ -1241,12 +1391,14 @@ test('invalid parser diagnostics and complete container-type drift retry then re
     {
       name: 'diagnostic counts contradict parsed updates',
       parsed: { updates: [cachedNotice], diagnostics: { candidateCount: 1, relevantCount: 0, containerTypes: ['li'] } },
-      error: /诊断|计数/
+      error: /诊断|计数/,
+      expectedParseCalls: 2
     },
     {
       name: 'all trusted container types disappear',
       parsed: { updates: [cachedNotice], diagnostics: { candidateCount: 1, relevantCount: 1, containerTypes: ['div'] } },
-      error: /容器|结构/
+      error: /容器|结构/,
+      expectedParseCalls: 1
     }
   ];
 
@@ -1266,7 +1418,7 @@ test('invalid parser diagnostics and complete container-type drift retry then re
       await service.initialize();
       const snapshot = await service.refresh();
 
-      assert.equal(parseCalls, 2);
+      assert.equal(parseCalls, fixture.expectedParseCalls);
       assert.equal(snapshot.status, 'stale');
       assert.equal(snapshot.sources[0].ok, false);
       assert.equal(snapshot.sources[0].degraded, true);

@@ -7,6 +7,14 @@ const PUBLIC_FILES = new Map([
   ['/index.html', 'index.html'],
   ['/programs', 'programs.html'],
   ['/programs.html', 'programs.html'],
+  ['/scores', 'scores.html'],
+  ['/scores.html', 'scores.html'],
+  ['/preparation', 'preparation.html'],
+  ['/preparation.html', 'preparation.html'],
+  ['/materials', 'materials.html'],
+  ['/materials.html', 'materials.html'],
+  ['/sources', 'sources.html'],
+  ['/sources.html', 'sources.html'],
   ['/timeline', 'timeline.html'],
   ['/timeline.html', 'timeline.html'],
   ['/application', 'application.html'],
@@ -59,6 +67,8 @@ function consumeSmallBody(request, maximumBytes = 1024) {
         exceeded = true;
         const error = new Error('request body too large');
         error.code = 'BODY_TOO_LARGE';
+        request.removeAllListeners('data');
+        request.resume();
         reject(error);
       }
     });
@@ -73,13 +83,14 @@ function isTrustedRefreshRequest(request) {
   if (fetchSite === 'cross-site') return false;
   const localPort = Number(request.socket?.localPort);
   if (!Number.isInteger(localPort) || localPort < 1 || localPort > 65_535) return false;
-  const expectedHost = `127.0.0.1:${localPort}`;
-  if (request.headers.host !== expectedHost) return false;
+  const allowedHosts = [`127.0.0.1:${localPort}`, `localhost:${localPort}`];
+  if (!allowedHosts.includes(request.headers.host)) return false;
   const origin = request.headers.origin;
   if (!origin) return false;
   try {
     const originUrl = new URL(origin);
-    return originUrl.protocol === 'http:' && originUrl.origin === `http://${expectedHost}`;
+    return originUrl.protocol === 'http:' &&
+      allowedHosts.some((host) => originUrl.origin === `http://${host}`);
   } catch {
     return false;
   }
@@ -242,6 +253,7 @@ function createHttpServer({
       }
       const stream = fs.createReadStream(filePath);
       stream.on('error', () => response.destroy());
+      response.on('close', () => stream.destroy());
       stream.pipe(response);
     } catch {
       writeText(response, 404, 'Not found');

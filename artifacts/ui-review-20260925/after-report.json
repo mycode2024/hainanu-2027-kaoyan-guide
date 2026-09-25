@@ -1,0 +1,375 @@
+{
+  "report": [
+    {
+      "width": 1440,
+      "page": "index",
+      "scrollWidth": 1425,
+      "overflow": [],
+      "footer": "个人备考导航，不是海南大学或研招网官方页面。静态内容复核日期：2026-09-21；动态通知由本地服务另行同步。",
+      "noticeWidth": 814,
+      "noticeFont": "15px"
+    },
+    {
+      "width": 1440,
+      "page": "programs",
+      "scrollWidth": 1425,
+      "overflow": [],
+      "footer": "个人备考导航，不是海南大学或研招网官方页面。静态内容复核日期：2026-09-21；动态通知由本地服务另行同步。",
+      "noticeFont": null
+    },
+    {
+      "width": 1440,
+      "page": "scores",
+      "scrollWidth": 1425,
+      "overflow": [],
+      "footer": "个人备考导航，不是海南大学或研招网官方页面。静态内容复核日期：2026-09-21；动态通知由本地服务另行同步。",
+      "noticeFont": null
+    },
+    {
+      "width": 1440,
+      "page": "preparation",
+      "scrollWidth": 1425,
+      "overflow": [],
+      "footer": "个人备考导航，不是海南大学或研招网官方页面。静态内容复核日期：2026-09-21；动态通知由本地服务另行同步。",
+      "noticeFont": null
+    },
+    {
+      "width": 1440,
+      "page": "timeline",
+      "scrollWidth": 1425,
+      "overflow": [],
+      "footer": "个人备考导航，不是海南大学或研招网官方页面。静态内容复核日期：2026-09-21；动态通知由本地服务另行同步。",
+      "noticeFont": null
+    },
+    {
+      "width": 1440,
+      "page": "application",
+      "scrollWidth": 1425,
+      "overflow": [],
+      "footer": "个人备考导航，不是海南大学或研招网官方页面。静态内容复核日期：2026-09-21；动态通知由本地服务另行同步。",
+      "noticeFont": null
+    },
+    {
+      "width": 1440,
+      "page": "materials",
+      "scrollWidth": 1425,
+      "overflow": [],
+      "footer": "个人备考导航，不是海南大学或研招网官方页面。静态内容复核日期：2026-09-21；动态通知由本地服务另行同步。",
+      "noticeFont": null
+    },
+    {
+      "width": 1440,
+      "page": "updates",
+      "scrollWidth": 1425,
+      "overflow": [],
+      "footer": "个人备考导航，不是海南大学或研招网官方页面。静态内容复核日期：2026-09-21；动态通知由本地服务另行同步。",
+      "noticeWidth": 718,
+      "noticeFont": "15px"
+    },
+    {
+      "width": 1440,
+      "page": "sources",
+      "scrollWidth": 1425,
+      "overflow": [],
+      "footer": "个人备考导航，不是海南大学或研招网官方页面。静态内容复核日期：2026-09-21；动态通知由本地服务另行同步。",
+      "noticeFont": null
+    },
+    {
+      "width": 1024,
+      "page": "index",
+      "scrollWidth": 1009,
+      "overflow": [],
+      "footer": "个人备考导航，不是海南大学或研招网官方页面。静态内容复核日期：2026-09-21；动态通知由本地服务另行同步。",
+      "noticeWidth": 695,
+      "noticeFont": "15px"
+    },
+    {
+      "width": 1024,
+      "page": "programs",
+      "scrollWidth": 1009,
+      "overflow": [],
+      "footer": "个人备考导航，不是海南大学或研招网官方页面。静态内容复核日期：2026-09-21；动态通知由本地服务另行同步。",
+      "noticeFont": null
+    },
+    {
+      "width": 1024,
+      "page": "scores",
+      "scrollWidth": 1009,
+      "overflow": [],
+      "footer": "个人备考导航，不是海南大学或研招网官方页面。静态内容复核日期：2026-09-21；动态通知由本地服务另行同步。",
+      "noticeFont": null
+    },
+    {
+      "width": 1024,
+      "page": "preparation",
+      "scrollWidth": 1009,
+      "overflow": [],
+      "footer": "个人备考导航，不是海南大学或研招网官方页面。静态内容复核日期：2026-09-21；动态通知由本地服务另行同步。",
+      "noticeFont": null
+    },
+    {
+      "width": 1024,
+      "page": "timeline",
+      "scrollWidth": 1009,
+      "overflow": [],
+      "footer": "个人备考导航，不是海南大学或研招网官方页面。静态内容复核日期：2026-09-21；动态通知由本地服务另行同步。",
+      "noticeFont": null
+    },
+    {
+      "width": 1024,
+      "page": "application",
+      "scrollWidth": 1009,
+      "overflow": [],
+      "footer": "个人备考导航，不是海南大学或研招网官方页面。静态内容复核日期：2026-09-21；动态通知由本地服务另行同步。",
+      "noticeFont": null
+    },
+    {
+      "width": 1024,
+      "page": "materials",
+      "scrollWidth": 1009,
+      "overflow": [],
+      "footer": "个人备考导航，不是海南大学或研招网官方页面。静态内容复核日期：2026-09-21；动态通知由本地服务另行同步。",
+      "noticeFont": null
+    },
+    {
+      "width": 1024,
+      "page": "updates",
+      "scrollWidth": 1009,
+      "overflow": [],
+      "footer": "个人备考导航，不是海南大学或研招网官方页面。静态内容复核日期：2026-09-21；动态通知由本地服务另行同步。",
+      "noticeWidth": 494.046875,
+      "noticeFont": "15px"
+    },
+    {
+      "width": 1024,
+      "page": "sources",
+      "scrollWidth": 1009,
+      "overflow": [],
+      "footer": "个人备考导航，不是海南大学或研招网官方页面。静态内容复核日期：2026-09-21；动态通知由本地服务另行同步。",
+      "noticeFont": null
+    },
+    {
+      "width": 768,
+      "page": "index",
+      "scrollWidth": 753,
+      "overflow": [],
+      "footer": "个人备考导航，不是海南大学或研招网官方页面。静态内容复核日期：2026-09-21；动态通知由本地服务另行同步。",
+      "noticeWidth": 439,
+      "noticeFont": "15px"
+    },
+    {
+      "width": 768,
+      "page": "programs",
+      "scrollWidth": 753,
+      "overflow": [],
+      "footer": "个人备考导航，不是海南大学或研招网官方页面。静态内容复核日期：2026-09-21；动态通知由本地服务另行同步。",
+      "noticeFont": null
+    },
+    {
+      "width": 768,
+      "page": "scores",
+      "scrollWidth": 753,
+      "overflow": [],
+      "footer": "个人备考导航，不是海南大学或研招网官方页面。静态内容复核日期：2026-09-21；动态通知由本地服务另行同步。",
+      "noticeFont": null
+    },
+    {
+      "width": 768,
+      "page": "preparation",
+      "scrollWidth": 753,
+      "overflow": [],
+      "footer": "个人备考导航，不是海南大学或研招网官方页面。静态内容复核日期：2026-09-21；动态通知由本地服务另行同步。",
+      "noticeFont": null
+    },
+    {
+      "width": 768,
+      "page": "timeline",
+      "scrollWidth": 753,
+      "overflow": [],
+      "footer": "个人备考导航，不是海南大学或研招网官方页面。静态内容复核日期：2026-09-21；动态通知由本地服务另行同步。",
+      "noticeFont": null
+    },
+    {
+      "width": 768,
+      "page": "application",
+      "scrollWidth": 753,
+      "overflow": [],
+      "footer": "个人备考导航，不是海南大学或研招网官方页面。静态内容复核日期：2026-09-21；动态通知由本地服务另行同步。",
+      "noticeFont": null
+    },
+    {
+      "width": 768,
+      "page": "materials",
+      "scrollWidth": 753,
+      "overflow": [],
+      "footer": "个人备考导航，不是海南大学或研招网官方页面。静态内容复核日期：2026-09-21；动态通知由本地服务另行同步。",
+      "noticeFont": null
+    },
+    {
+      "width": 768,
+      "page": "updates",
+      "scrollWidth": 753,
+      "overflow": [],
+      "footer": "个人备考导航，不是海南大学或研招网官方页面。静态内容复核日期：2026-09-21；动态通知由本地服务另行同步。",
+      "noticeWidth": 439,
+      "noticeFont": "15px"
+    },
+    {
+      "width": 768,
+      "page": "sources",
+      "scrollWidth": 753,
+      "overflow": [],
+      "footer": "个人备考导航，不是海南大学或研招网官方页面。静态内容复核日期：2026-09-21；动态通知由本地服务另行同步。",
+      "noticeFont": null
+    },
+    {
+      "width": 390,
+      "page": "index",
+      "scrollWidth": 375,
+      "overflow": [],
+      "footer": "个人备考导航，不是海南大学或研招网官方页面。静态内容复核日期：2026-09-21；动态通知由本地服务另行同步。",
+      "noticeWidth": 275,
+      "noticeFont": "15px"
+    },
+    {
+      "width": 390,
+      "page": "programs",
+      "scrollWidth": 375,
+      "overflow": [],
+      "footer": "个人备考导航，不是海南大学或研招网官方页面。静态内容复核日期：2026-09-21；动态通知由本地服务另行同步。",
+      "noticeFont": null
+    },
+    {
+      "width": 390,
+      "page": "scores",
+      "scrollWidth": 375,
+      "overflow": [],
+      "footer": "个人备考导航，不是海南大学或研招网官方页面。静态内容复核日期：2026-09-21；动态通知由本地服务另行同步。",
+      "noticeFont": null
+    },
+    {
+      "width": 390,
+      "page": "preparation",
+      "scrollWidth": 375,
+      "overflow": [],
+      "footer": "个人备考导航，不是海南大学或研招网官方页面。静态内容复核日期：2026-09-21；动态通知由本地服务另行同步。",
+      "noticeFont": null
+    },
+    {
+      "width": 390,
+      "page": "timeline",
+      "scrollWidth": 375,
+      "overflow": [],
+      "footer": "个人备考导航，不是海南大学或研招网官方页面。静态内容复核日期：2026-09-21；动态通知由本地服务另行同步。",
+      "noticeFont": null
+    },
+    {
+      "width": 390,
+      "page": "application",
+      "scrollWidth": 375,
+      "overflow": [],
+      "footer": "个人备考导航，不是海南大学或研招网官方页面。静态内容复核日期：2026-09-21；动态通知由本地服务另行同步。",
+      "noticeFont": null
+    },
+    {
+      "width": 390,
+      "page": "materials",
+      "scrollWidth": 375,
+      "overflow": [],
+      "footer": "个人备考导航，不是海南大学或研招网官方页面。静态内容复核日期：2026-09-21；动态通知由本地服务另行同步。",
+      "noticeFont": null
+    },
+    {
+      "width": 390,
+      "page": "updates",
+      "scrollWidth": 375,
+      "overflow": [],
+      "footer": "个人备考导航，不是海南大学或研招网官方页面。静态内容复核日期：2026-09-21；动态通知由本地服务另行同步。",
+      "noticeWidth": 275,
+      "noticeFont": "15px"
+    },
+    {
+      "width": 390,
+      "page": "sources",
+      "scrollWidth": 375,
+      "overflow": [],
+      "footer": "个人备考导航，不是海南大学或研招网官方页面。静态内容复核日期：2026-09-21；动态通知由本地服务另行同步。",
+      "noticeFont": null
+    },
+    {
+      "width": 320,
+      "page": "index",
+      "scrollWidth": 305,
+      "overflow": [],
+      "footer": "个人备考导航，不是海南大学或研招网官方页面。静态内容复核日期：2026-09-21；动态通知由本地服务另行同步。",
+      "noticeWidth": 205,
+      "noticeFont": "15px"
+    },
+    {
+      "width": 320,
+      "page": "programs",
+      "scrollWidth": 305,
+      "overflow": [],
+      "footer": "个人备考导航，不是海南大学或研招网官方页面。静态内容复核日期：2026-09-21；动态通知由本地服务另行同步。",
+      "noticeFont": null
+    },
+    {
+      "width": 320,
+      "page": "scores",
+      "scrollWidth": 305,
+      "overflow": [],
+      "footer": "个人备考导航，不是海南大学或研招网官方页面。静态内容复核日期：2026-09-21；动态通知由本地服务另行同步。",
+      "noticeFont": null
+    },
+    {
+      "width": 320,
+      "page": "preparation",
+      "scrollWidth": 305,
+      "overflow": [],
+      "footer": "个人备考导航，不是海南大学或研招网官方页面。静态内容复核日期：2026-09-21；动态通知由本地服务另行同步。",
+      "noticeFont": null
+    },
+    {
+      "width": 320,
+      "page": "timeline",
+      "scrollWidth": 305,
+      "overflow": [],
+      "footer": "个人备考导航，不是海南大学或研招网官方页面。静态内容复核日期：2026-09-21；动态通知由本地服务另行同步。",
+      "noticeFont": null
+    },
+    {
+      "width": 320,
+      "page": "application",
+      "scrollWidth": 305,
+      "overflow": [],
+      "footer": "个人备考导航，不是海南大学或研招网官方页面。静态内容复核日期：2026-09-21；动态通知由本地服务另行同步。",
+      "noticeFont": null
+    },
+    {
+      "width": 320,
+      "page": "materials",
+      "scrollWidth": 305,
+      "overflow": [],
+      "footer": "个人备考导航，不是海南大学或研招网官方页面。静态内容复核日期：2026-09-21；动态通知由本地服务另行同步。",
+      "noticeFont": null
+    },
+    {
+      "width": 320,
+      "page": "updates",
+      "scrollWidth": 305,
+      "overflow": [],
+      "footer": "个人备考导航，不是海南大学或研招网官方页面。静态内容复核日期：2026-09-21；动态通知由本地服务另行同步。",
+      "noticeWidth": 205,
+      "noticeFont": "15px"
+    },
+    {
+      "width": 320,
+      "page": "sources",
+      "scrollWidth": 305,
+      "overflow": [],
+      "footer": "个人备考导航，不是海南大学或研招网官方页面。静态内容复核日期：2026-09-21；动态通知由本地服务另行同步。",
+      "noticeFont": null
+    }
+  ],
+  "errors": []
+}

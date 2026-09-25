@@ -1,0 +1,69 @@
+TAP version 13
+# Subtest: includes current recommended-admission rules and retained target-year contact notices
+not ok 1 - includes current recommended-admission rules and retained target-year contact notices
+  ---
+  duration_ms: 1037.1444
+  type: 'test'
+  location: 'D:\\DefaultQuickAccessFiles\\Desktop\\hainanu-2027-kaoyan-guide\\tests\\notice-dates.test.cjs:9:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly deep-equal:
+    + actual - expected
+    
+    + []
+    - [
+    -   '2026-09-20',
+    -   '2024-10-17'
+    - ]
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+    0: '2026-09-20'
+    1: '2024-10-17'
+  actual:
+  operator: 'deepStrictEqual'
+  stack: |-
+    TestContext.<anonymous> (D:\DefaultQuickAccessFiles\Desktop\hainanu-2027-kaoyan-guide\tests\notice-dates.test.cjs:15:10)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+# Subtest: discards legacy homepage years before an offline refresh can carry them forward
+ok 2 - discards legacy homepage years before an offline refresh can carry them forward
+  ---
+  duration_ms: 1.5915
+  type: 'test'
+  ...
+# Subtest: reads publication metadata instead of dates in the notice body
+ok 3 - reads publication metadata instead of dates in the notice body
+  ---
+  duration_ms: 0.8323
+  type: 'test'
+  ...
+# Subtest: verifies yearless homepage dates against the article even after the anniversary
+ok 4 - verifies yearless homepage dates against the article even after the anniversary
+  ---
+  duration_ms: 2.4169
+  type: 'test'
+  ...
+# Subtest: never publishes a guessed year if the article has no verifiable publication date
+ok 5 - never publishes a guessed year if the article has no verifiable publication date
+  ---
+  duration_ms: 1.3055
+  type: 'test'
+  ...
+# Subtest: newly discovered older notices do not jump ahead of recent cached notices
+ok 6 - newly discovered older notices do not jump ahead of recent cached notices
+  ---
+  duration_ms: 3.4052
+  type: 'test'
+  ...
+1..6
+# tests 6
+# suites 0
+# pass 5
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 1120.2445

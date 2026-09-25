@@ -1,0 +1,8 @@
+{
+  "report": [
+    {
+      "interactions": "mobile menu, Escape, cross-page checklist, printable checked state, timeline filters, notice pagination and filters, print styles, global reset: passed"
+    }
+  ],
+  "errors": []
+}

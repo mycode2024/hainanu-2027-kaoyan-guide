@@ -150,7 +150,10 @@ function installFakePage(options = {}) {
     storageWarning: createFakeElement({ hidden: true }),
     updateAll: createFakeElement({ dataset: { updatesFilter: 'all' } }),
     updateNew: createFakeElement({ dataset: { updatesFilter: 'new' } }),
-    updatesList: createFakeElement({ dataset: options.updateLimit ? { updateLimit: options.updateLimit } : {} }),
+    updatesList: createFakeElement({ dataset: { updateLimit: options.updateLimit, updatePageSize: options.pageSize } }),
+    previous: createFakeElement(),
+    next: createFakeElement(),
+    pageStatus: createFakeElement(),
     stageDetail: createFakeElement(),
     stageName: createFakeElement(),
     nextDays: createFakeElement(),
@@ -175,6 +178,9 @@ function installFakePage(options = {}) {
     ['#refresh-official-updates', elements.refresh],
     ['#live-source-health', elements.sourceHealth],
     ['#official-updates-list', elements.updatesList],
+    ['#updates-previous', elements.previous],
+    ['#updates-next', elements.next],
+    ['#updates-page-status', elements.pageStatus],
     ['#current-stage-detail', elements.stageDetail],
     ['#current-stage-name', elements.stageName],
     ['#next-stage-days', elements.nextDays],
@@ -201,7 +207,9 @@ function installFakePage(options = {}) {
       ...(options.pageTocLinks || [])
     ]],
     ['main section[id]', options.sections || []],
-    ['[data-updates-filter]', [elements.updateAll, elements.updateNew]]
+    ['[data-updates-filter]', [elements.updateAll, elements.updateNew]],
+    ['.verified-date', options.verifiedDates || []],
+    ['.site-footer p', options.footerParagraphs || []]
   ]);
   const storage = options.storage || {
     values: new Map(),
@@ -980,6 +988,65 @@ test('resumes immediately after hide then show races with aborted request cleanu
   });
 });
 
+test('shows a disconnected status while preserving notices and recovers on the next successful refresh', async () => {
+  await withFakePage({}, async (page) => {
+    page.settle(page.fetchCalls[0]);
+    await page.flush();
+    assert.equal(page.elements.statusTitle.textContent, '已连接 · 官方数据已同步');
+    assert.equal(page.elements.console.dataset.state, 'fresh');
+
+    const retainedList = page.elements.updatesList.children.slice();
+    page.elements.refresh.dispatch('click');
+    assert.equal(page.fetchCalls.length, 2);
+    page.fetchCalls[1].reject(new Error('network failure'));
+    await page.flush();
+
+    assert.match(page.elements.statusTitle.textContent, /同步失败/);
+    assert.equal(page.elements.console.dataset.state, 'offline');
+    assert.equal(page.elements.statusDetail.textContent, '本次同步失败，已保留当前页面中的最近数据。');
+    assert.deepEqual(page.elements.updatesList.children, retainedList);
+    assert.match(page.elements.freshness.textContent, /未验证/);
+
+    page.elements.refresh.dispatch('click');
+    page.settle(page.fetchCalls[2]);
+    await page.flush();
+    assert.equal(page.elements.console.dataset.state, 'fresh');
+    assert.equal(page.elements.statusTitle.textContent, '已连接 · 官方数据已同步');
+  });
+});
+
+test('a refresh cooldown does not falsely mark a reachable service as disconnected', async () => {
+  await withFakePage({}, async (page) => {
+    page.settle(page.fetchCalls[0]);
+    await page.flush();
+    const retainedList = page.elements.updatesList.children.slice();
+    page.elements.refresh.dispatch('click');
+    page.fetchCalls[1].resolve({ ok: false, status: 429 });
+    await page.flush();
+    assert.equal(page.elements.console.dataset.state, 'fresh');
+    assert.match(page.elements.statusDetail.textContent, /频繁|稍后/);
+    assert.deepEqual(page.elements.updatesList.children, retainedList);
+    assert.equal(page.elements.refresh.disabled, false);
+  });
+});
+
+test('hiding the page mid-flight does not overwrite the rendered console status', async () => {
+  await withFakePage({}, async (page) => {
+    page.settle(page.fetchCalls[0]);
+    await page.flush();
+    page.runTimers(60_000);
+    assert.equal(page.fetchCalls.length, 2, 'the scheduled poll starts before hiding');
+
+    page.document.visibilityState = 'hidden';
+    page.document.dispatch('visibilitychange');
+    assert.equal(page.fetchCalls[1].aborted, true, 'hiding aborts the active poll');
+    await page.flush();
+
+    assert.equal(page.elements.statusTitle.textContent, '已连接 · 官方数据已同步');
+    assert.equal(page.elements.console.dataset.state, 'fresh');
+  });
+});
+
 test('does not replace the rendered update list for an identical later snapshot', async () => {
   await withFakePage({}, async (page) => {
     page.settle(page.fetchCalls[0]);
@@ -1083,16 +1150,111 @@ test('acknowledges new notices in the current session when local storage cannot 
   });
 });
 
+test('paginates notices after date sorting and resets filters and shrinking snapshots safely', async () => {
+  const snapshot = makeUpdatesPayload();
+  snapshot.updates = Array.from({ length: 19 }, (_, i) => ({
+    ...snapshot.updates[0], id: `page-${i}`, title: `招生通知 ${i}`,
+    date: `2026-09-${String(i + 1).padStart(2, '0')}`,
+    url: `https://gs.hainanu.edu.cn/info/1024/${9100 + i}.htm`
+  }));
+  await withFakePage({ pageSize: '8' }, async (page) => {
+    const { updatesList, previous, next, pageStatus, updateNew, updateAll } = page.elements;
+    const dates = () => findElementsByClass(updatesList, 'official-update-date').map((el) => el.textContent);
+    page.settle(page.fetchCalls[0], snapshot);
+    await page.flush();
+    assert.equal(updatesList.children.length, 8);
+    assert.equal(dates()[0], '2026.09.19');
+    assert.equal(previous.disabled, true);
+    assert.match(pageStatus.textContent, /1 \/ 3/);
+    next.dispatch('click');
+    assert.equal(dates()[0], '2026.09.11');
+    previous.dispatch('click');
+    assert.equal(dates()[0], '2026.09.19');
+    next.dispatch('click');
+    next.dispatch('click');
+    assert.equal(updatesList.children.length, 3);
+    assert.equal(next.disabled, true);
+    assert.deepEqual(dates(), ['2026.09.03', '2026.09.02', '2026.09.01']);
+    updateNew.dispatch('click');
+    assert.match(pageStatus.textContent, /1 \/ 1.*0 条/);
+    assert.equal(next.disabled, true);
+    updateAll.dispatch('click');
+    assert.equal(dates()[0], '2026.09.19');
+    next.dispatch('click');
+    page.elements.refresh.dispatch('click');
+    page.settle(page.fetchCalls[1], snapshot);
+    await page.flush();
+    assert.match(pageStatus.textContent, /2 \/ 3/);
+    page.elements.refresh.dispatch('click');
+    page.settle(page.fetchCalls[2], { ...snapshot, updates: snapshot.updates.slice(-2) });
+    await page.flush();
+    assert.equal(updatesList.children.length, 2);
+    assert.match(pageStatus.textContent, /1 \/ 1.*2 条/);
+    assert.equal(previous.disabled, true);
+  });
+});
+
+test('old section bookmarks point to their new pages including file-mode paths', () => {
+  const { getLegacyPageDestination } = loadApp();
+  for (const prefix of ['', '/local/guide']) {
+    assert.equal(getLegacyPageDestination(`${prefix}/programs.html`, '#scores'), 'scores.html#scores');
+    assert.equal(getLegacyPageDestination(`${prefix}/programs`, '#exam'), 'preparation.html#exam');
+    assert.equal(getLegacyPageDestination(`${prefix}/programs.html`, '#risks'), 'preparation.html#risks');
+    assert.equal(getLegacyPageDestination(`${prefix}/application.html`, '#materials'), 'materials.html#materials');
+    assert.equal(getLegacyPageDestination(`${prefix}/updates.html`, '#sources'), 'sources.html#sources');
+  }
+  assert.equal(getLegacyPageDestination('/programs.html', '#programs'), null);
+  assert.equal(getLegacyPageDestination('/scores.html', '#scores'), null);
+});
+
 test('every static printable task label starts with an honest unfinished state', () => {
   const fs = require('node:fs');
   const path = require('node:path');
-  const html = ['index.html', 'programs.html', 'timeline.html', 'application.html', 'updates.html']
+  const html = ['index.html', 'programs.html', 'scores.html', 'preparation.html', 'timeline.html', 'application.html', 'materials.html', 'updates.html', 'sources.html']
     .map((fileName) => fs.readFileSync(path.resolve(__dirname, '..', fileName), 'utf8'))
     .join('\n');
   const taskLabels = [...html.matchAll(/<label\b([^>]*)>\s*<input\b[^>]*class="task-check"/g)];
 
-  assert.equal(taskLabels.length, 21, 'the five static guide pages must contain all 21 printable task labels exactly once');
+  assert.equal(taskLabels.length, 21, 'the nine static guide pages must contain all 21 printable task labels exactly once');
   for (const [, attributes] of taskLabels) {
     assert.match(attributes, /\bdata-print-state="未完成"/);
   }
+});
+
+test('preserves the actual static review date when the page is opened on a later day', async () => {
+  const verifiedSpan = createFakeElement({ textContent: '静态内容复核至 2026-09-11' });
+  const footerP = createFakeElement({ textContent: '个人备考导航。静态内容复核日期：2026-09-11；动态通知由本地服务另行同步。' });
+  await withFakePage({
+    today: '2026-09-22',
+    verifiedDates: [verifiedSpan],
+    footerParagraphs: [footerP]
+  }, async () => {
+    assert.equal(verifiedSpan.textContent, '静态内容复核至 2026-09-11');
+    assert.equal(footerP.textContent, '个人备考导航。静态内容复核日期：2026-09-11；动态通知由本地服务另行同步。');
+  });
+});
+
+test('sorts official updates strictly by publication date descending first', () => {
+  const { aggregateUpdatesForDisplay } = loadApp();
+  const input = [
+    { id: '1', title: '2027年招生联系方式', date: '2025-10-17', url: 'https://gs.hainanu.edu.cn/1', source: '研招办', sourceId: 'hnu-grad', category: '动态', isTarget2027: true, isImportant: false },
+    { id: '2', title: '复试细则挂网网址汇总', date: '2026-09-20', url: 'https://gs.hainanu.edu.cn/2', source: '研招办', sourceId: 'hnu-grad', category: '动态', isTarget2027: false, isImportant: false },
+    { id: '3', title: '推免生接收公告', date: '2026-09-11', url: 'https://cs.hainanu.edu.cn/3', source: '计院', sourceId: 'hnu-cs', category: '推免', isTarget2027: true, isImportant: false }
+  ];
+  const result = aggregateUpdatesForDisplay(input, new Set(), new Set());
+  assert.deepEqual(result.map((item) => item.id), ['url:https://gs.hainanu.edu.cn/2', 'url:https://cs.hainanu.edu.cn/3', 'url:https://gs.hainanu.edu.cn/1']);
+});
+
+test('always shows a full publication year and distinguishes previous admission cycles', async () => {
+  const snapshot = makeUpdatesPayload();
+  snapshot.updates[0].title = '2026年硕士研究生招生预报名提醒';
+  snapshot.updates[0].date = '2025-09-30';
+  snapshot.updates.push({ ...snapshot.updates[0], id: 'current', url: 'https://gs.hainanu.edu.cn/info/1024/9001.htm', title: '2027年硕士研究生招生简章', date: '2026-09-20', isTarget2027: true });
+  await withFakePage({ today: '2026-09-23' }, async (page) => {
+    page.settle(page.fetchCalls[0], snapshot);
+    await page.flush();
+    assert.deepEqual(findElementsByClass(page.elements.updatesList, 'official-update-date').map((item) => item.textContent), ['2026.09.20', '2025.09.30']);
+    assert.match(collectText(page.elements.updatesList), /2026 招生 · 往年参考/);
+    assert.match(collectText(page.elements.updatesList), /2027 招生/);
+  });
 });

@@ -67,8 +67,12 @@ async function startServer(options = {}) {
   await updateService.initialize();
   const server = createHttpServer({ siteRoot, updateService });
   await new Promise((resolve, reject) => {
-    server.once('error', reject);
-    server.listen(port, host, resolve);
+    const onError = (err) => reject(err);
+    server.once('error', onError);
+    server.listen(port, host, () => {
+      server.off('error', onError);
+      resolve();
+    });
   });
 
   updateService.startAutoRefresh?.();
@@ -92,7 +96,10 @@ if (require.main === module) {
     console.log(`海南大学 2027 考研导航已启动：http://127.0.0.1:${address.port}`);
     console.log('保持此窗口打开；按 Ctrl+C 停止。');
 
-    const shutdown = () => server.close(() => process.exit(0));
+    const shutdown = () => {
+      server.close(() => process.exit(0));
+      server.closeIdleConnections?.();
+    };
     process.once('SIGINT', shutdown);
     process.once('SIGTERM', shutdown);
   }).catch((error) => {

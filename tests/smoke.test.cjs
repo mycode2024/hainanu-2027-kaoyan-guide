@@ -437,6 +437,7 @@ function createLifecycleProject(t, serverSource = testServerSource) {
   fs.mkdirSync(path.join(projectDirectory, 'scripts'), { recursive: true });
   fs.mkdirSync(path.join(projectDirectory, 'data'), { recursive: true });
   fs.copyFileSync(path.join(projectRoot, 'scripts', 'launch.ps1'), path.join(projectDirectory, 'scripts', 'launch.ps1'));
+  fs.copyFileSync(path.join(projectRoot, 'scripts', 'log-cleanup.ps1'), path.join(projectDirectory, 'scripts', 'log-cleanup.ps1'));
   fs.copyFileSync(path.join(projectRoot, 'scripts', 'stop.ps1'), path.join(projectDirectory, 'scripts', 'stop.ps1'));
   fs.writeFileSync(path.join(projectDirectory, 'server.cjs'), serverSource);
   t.after(async () => {
@@ -471,7 +472,7 @@ try {
   createServer = undefined;
 }
 
-test('serves the complete offline site and five guide pages with shared navigation', async (t) => {
+test('serves the complete offline site and nine focused guide pages with shared navigation', async (t) => {
   assert.equal(typeof createServer, 'function', 'createServer must be exported');
 
   const root = path.resolve(__dirname, '..');
@@ -483,10 +484,14 @@ test('serves the complete offline site and five guide pages with shared navigati
   const base = `http://127.0.0.1:${address.port}`;
   const pages = [
     ['/', '首页', 'data-page="home"'],
-    ['/programs.html', '专业与备考', 'data-page="programs"'],
+    ['/programs.html', '专业选择', 'data-page="programs"'],
+    ['/scores.html', '2026 届分数', 'data-page="scores"'],
+    ['/preparation.html', '初复试备考', 'data-page="preparation"'],
     ['/timeline.html', '全年时间轴', 'data-page="timeline"'],
-    ['/application.html', '报名材料', 'data-page="application"'],
-    ['/updates.html', '官方动态', 'data-page="updates"']
+    ['/application.html', '报名流程', 'data-page="application"'],
+    ['/materials.html', '材料清单', 'data-page="materials"'],
+    ['/updates.html', '官方动态', 'data-page="updates"'],
+    ['/sources.html', '官方信源', 'data-page="sources"']
   ];
   const expectedTaskIds = [
     'program-academic', 'program-computer', 'program-software',
@@ -515,6 +520,21 @@ test('serves the complete offline site and five guide pages with shared navigati
   }
 
   const combinedHtml = servedHtml.join('\n');
+  const htmlByPath = new Map(pages.map(([pathname], index) => [pathname, servedHtml[index]]));
+  for (const [pathname, id] of [['/scores.html', 'scores'], ['/preparation.html', 'exam'], ['/preparation.html', 'risks'], ['/materials.html', 'materials'], ['/sources.html', 'sources']]) {
+    assert.match(htmlByPath.get(pathname), new RegExp(`id="${id}"`));
+    assert.equal((combinedHtml.match(new RegExp(`\\sid="${id}"`, 'g')) || []).length, 1, `${id} content must live on only one page`);
+  }
+  for (const [pathname, html] of htmlByPath) {
+    assert.equal((html.match(/class="site-nav-link"/g) || []).length, pages.length);
+    for (const [, href] of html.matchAll(/href="(\/[^"?#]*(?:#[^"]*)?)"/g)) {
+      const [targetPath, hash] = href.split('#');
+      if (!targetPath.endsWith('.html') && targetPath !== '/') continue;
+      assert.ok(htmlByPath.has(targetPath), `${pathname} links to existing page ${href}`);
+      if (hash) assert.ok(htmlByPath.get(targetPath).includes(`id="${hash}"`), `${pathname} links to existing section ${href}`);
+    }
+  }
+  assert.match(htmlByPath.get('/updates.html'), /data-update-page-size="8"/);
   const taskIds = [...combinedHtml.matchAll(/\bdata-check-id="([^"]+)"/g)].map((match) => match[1]);
   assert.equal(taskIds.length, 21, 'task IDs must occur exactly once across the served guide pages');
   assert.equal(new Set(taskIds).size, 21, 'task IDs must be unique across the served guide pages');
@@ -796,6 +816,47 @@ test('the Windows launcher retains only the newest fourteen log pairs', {
   assert.equal(stderrLogs.length, 14);
   assert.equal(fs.existsSync(path.join(dataDirectory, `server-${requestedPort}-20240101-000001-seed1.log`)), false);
   assert.equal(fs.existsSync(path.join(dataDirectory, `server-${requestedPort}-20240101-000001-seed1.error.log`)), false);
+});
+
+test('the Windows launcher cleans orphaned log files alongside complete pairs', {
+  skip: !isWindowsPowerShellAvailable
+}, async (t) => {
+  const projectDirectory = createLifecycleProject(t);
+  const dataDirectory = path.join(projectDirectory, 'data');
+  const requestedPort = await getUnusedPort();
+  await assertPortFreeBeforeLaunch(requestedPort);
+  for (let index = 1; index <= 13; index += 1) {
+    const stamp = `20240102-0000${String(index).padStart(2, '0')}`;
+    const standardPath = path.join(dataDirectory, `server-${requestedPort}-${stamp}-seed${index}.log`);
+    const errorPath = path.join(dataDirectory, `server-${requestedPort}-${stamp}-seed${index}.error.log`);
+    fs.writeFileSync(standardPath, `stdout-${index}`);
+    fs.writeFileSync(errorPath, `stderr-${index}`);
+    const oldTime = new Date(Date.UTC(2024, 0, 2, 0, 0, index));
+    fs.utimesSync(standardPath, oldTime, oldTime);
+    fs.utimesSync(errorPath, oldTime, oldTime);
+  }
+  const orphanLog = path.join(dataDirectory, 'server-20240101-000001-orphan.log');
+  const orphanErrorLog = path.join(dataDirectory, 'server-20240101-000001-dangling.error.log');
+  fs.writeFileSync(orphanLog, 'orphan stdout without an error counterpart');
+  fs.writeFileSync(orphanErrorLog, 'orphan stderr without a standard counterpart');
+  const oldestTime = new Date(Date.UTC(2024, 0, 1, 0, 0, 0));
+  fs.utimesSync(orphanLog, oldestTime, oldestTime);
+  fs.utimesSync(orphanErrorLog, oldestTime, oldestTime);
+
+  const result = await runPowerShellFile(
+    path.join(projectDirectory, 'scripts', 'launch.ps1'),
+    ['-Port', requestedPort, '-NoBrowser'],
+    { cwd: projectDirectory }
+  );
+
+  assert.equal(result.code, 0, result.stderr || result.stdout);
+  assert.equal(fs.existsSync(orphanLog), false, 'the orphan standard log must be cleaned');
+  assert.equal(fs.existsSync(orphanErrorLog), false, 'the orphan error log must be cleaned');
+  const fileNames = fs.readdirSync(dataDirectory);
+  const standardLogs = fileNames.filter((name) => name.startsWith('server-') && name.endsWith('.log') && !name.endsWith('.error.log'));
+  const completePairs = standardLogs.filter((name) => fileNames.includes(`${name.slice(0, -4)}.error.log`));
+  assert.equal(standardLogs.length, completePairs.length, `incomplete log pair: ${standardLogs.join(', ')}`);
+  assert.equal(completePairs.length, 14, completePairs.join(', '));
 });
 
 test('browser launch failure after readiness is a warning, not launch failure', {

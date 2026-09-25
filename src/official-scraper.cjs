@@ -65,6 +65,43 @@ function categorizeTitle(title, source) {
   return '招生动态';
 }
 
+function isRelevantAdmissionCycle(title, date, checkedAt) {
+  if (/2027\s*(?:年|级)/.test(title)) return true;
+  const titleYear = title.match(/(?:20\d{2})年?/);
+  const pubYear = date ? Number(date.slice(0, 4)) : null;
+  const checkedDate = new Date(checkedAt);
+  const shanghaiValues = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit'
+  }).formatToParts(checkedDate);
+  const currentYear = Number(shanghaiValues.find((p) => p.type === 'year')?.value);
+  const currentMonth = Number(shanghaiValues.find((p) => p.type === 'month')?.value);
+  if (!Number.isFinite(currentYear)) return true;
+  // The target admission year: current year + 1 (e.g., in 2026 we target 2027 cycle)
+  const targetYear = currentYear + 1;
+  // If title explicitly mentions a year, only keep target year and one year prior
+  if (titleYear) {
+    const mentioned = Number(titleYear[0].replace('年', ''));
+    if (Number.isFinite(mentioned) && mentioned < targetYear - 1) return false;
+  }
+  // Filter by publication date: discard items published > 18 months ago
+  if (Number.isFinite(pubYear) && date) {
+    const pubMs = Date.parse(`${date}T00:00:00Z`);
+    const checkedMs = checkedDate.getTime();
+    if (Number.isFinite(pubMs) && Number.isFinite(checkedMs) && checkedMs - pubMs > 548 * 86_400_000) {
+      return false;
+    }
+  }
+  // In the latter half of the year (Jul+), old-cycle operational notices are stale
+  if (currentMonth >= 7 && Number.isFinite(pubYear)) {
+    const isOldCycleOperational = /复试|调剂|拟录取|录取通知书|调档/.test(title)
+      && !/\b20\d{2}\b/.test(title.replace(String(targetYear), '').replace(String(targetYear - 1), ''));
+    if (isOldCycleOperational && pubYear < currentYear) return false;
+  }
+  return true;
+}
+
 function isRelevantTitle(title, source) {
   if (source?.context === 'national-policy') {
     if (/培养(?:工作|管理)?/.test(title)) return false;
@@ -75,11 +112,11 @@ function isRelevantTitle(title, source) {
   const explicitlyOtherLevel = /博士|本科|学士|高考/.test(title) && !/硕士/.test(title);
   if (explicitlyOtherLevel) return false;
   const graduateContext = /硕士|考研|研考|研究生招生|全国硕士研究生招生考试/.test(title);
-  const actionable = /招生|简章|章程|专业目录|考试|科目|大纲|报名|确认|报考|考点|准考|成绩|分数线|复试|调剂|录取|推免|材料/.test(title);
+  const actionable = /招生|简章|章程|专业目录|考试|科目|大纲|报名|确认|报考|考点|准考|成绩|分数线|复试|调剂|录取|推免|推荐免试|材料/.test(title);
   const shortActionPatterns = {
     'graduate-admissions-list': /招生简章|招生章程|专业目录|考试大纲|初试科目|考试科目|网上报名|预报名|报名公告|网上确认|报考点|准考资格|报考材料|准考证|成绩|分数线|排名查询|复试|调剂|拟录取|录取|推免|推荐免试/,
     'hnu-master': /招生简章|招生章程|专业目录|考试大纲|初试科目|考试科目|网上报名|预报名|报名公告|网上确认|报考点|准考资格|报考材料|准考证|成绩|分数线|排名查询|复试|调剂|拟录取|录取|推免|推荐免试/,
-    'hnu-home': /网上报名|预报名|报名公告|网上确认|报考点|考点|准考资格|准考证|研考/,
+    'hnu-home': /网上报名|预报名|报名公告|网上确认|报考点|考点|准考资格|准考证|研考|推荐免试/,
     'hnu-computer': /招生简章|招生章程|专业目录|考试大纲|初试科目|考试科目|成绩|分数线|排名查询|复试|调剂|拟录取|录取|推免|推荐免试/
   };
   const contextAction = shortActionPatterns[source?.context];
@@ -111,11 +148,13 @@ function getShanghaiYearAndMonth(checkedAt) {
   const values = new Intl.DateTimeFormat('en-US', {
     timeZone: 'Asia/Shanghai',
     year: 'numeric',
-    month: '2-digit'
+    month: '2-digit',
+    day: '2-digit'
   }).formatToParts(checkedDate);
   const year = Number(values.find((part) => part.type === 'year')?.value);
   const month = Number(values.find((part) => part.type === 'month')?.value);
-  return Number.isFinite(year) && Number.isFinite(month) ? { year, month } : null;
+  const day = Number(values.find((part) => part.type === 'day')?.value);
+  return Number.isFinite(year) && Number.isFinite(month) ? { year, month, day } : null;
 }
 
 function readHtmlTag(source, start) {
@@ -133,6 +172,9 @@ function readHtmlTag(source, start) {
   while (/[A-Za-z0-9:-]/.test(source[index] || '')) index += 1;
   const name = source.slice(nameStart, index).toLowerCase();
   let quote = null;
+  let lastSignificantCharacter = null;
+  let slashAtBoundary = false;
+  let lastWasWhitespace = true;
   for (; index < source.length; index += 1) {
     const character = source[index];
     if (quote) {
@@ -141,16 +183,24 @@ function readHtmlTag(source, start) {
     }
     if (character === '"' || character === "'") {
       quote = character;
+      lastWasWhitespace = false;
       continue;
     }
     if (character === '>') {
       return {
         name,
         closing,
-        selfClosing: !closing && /\/\s*$/.test(source.slice(nameStart, index)),
+        selfClosing: !closing && lastSignificantCharacter === '/' && slashAtBoundary,
         end: index + 1
       };
     }
+    if (/\s/.test(character)) {
+      lastWasWhitespace = true;
+      continue;
+    }
+    lastSignificantCharacter = character;
+    if (character === '/') slashAtBoundary = lastWasWhitespace;
+    lastWasWhitespace = false;
   }
   return null;
 }
@@ -283,6 +333,28 @@ function extractPublicationDate(content, checkedAt) {
     .find((candidate) => isValidCalendarDate(candidate.year, candidate.month, candidate.day))?.value ?? null;
 }
 
+// Only publication metadata or the publisher's dated byline may establish a year.
+// Dates in the article body can describe deadlines for a different admission cycle.
+function parseOfficialPublicationDate(html) {
+  const visibleHtml = maskNonVisibleRegions(String(html || ''));
+  const candidates = [];
+  for (const tag of visibleHtml.matchAll(/<meta\b[^>]*>/gi)) {
+    const attributes = Object.fromEntries([...tag[0].matchAll(/([\w:-]+)\s*=\s*(["'])(.*?)\2/g)].map((match) => [match[1].toLowerCase(), match[3]]));
+    if (/^(pubdate|publishdate|article:published_time)$/i.test(attributes.name || attributes.property || '')) {
+      candidates.push(attributes.content || '');
+    }
+  }
+  const byline = extractVisibleText(visibleHtml).match(/(20\d{2}年\d{1,2}月\d{1,2}日)\s+\d{1,2}:\d{2}\s*来源\s*[:：]/);
+  if (byline) candidates.push(byline[1]);
+  for (const value of candidates) {
+    const match = value.match(/^(20\d{2})[-年](\d{1,2})[-月](\d{1,2})(?:日|T|\b)/);
+    if (match && isValidCalendarDate(Number(match[1]), Number(match[2]), Number(match[3]))) {
+      return `${match[1]}-${match[2].padStart(2, '0')}-${match[3].padStart(2, '0')}`;
+    }
+  }
+  return null;
+}
+
 function findBalancedElements(html, type) {
   const document = String(html || '');
   const scanDocument = maskNonVisibleRegions(document);
@@ -323,7 +395,8 @@ function extractAnnouncementCards(html, checkedAt) {
       const anchors = extractAnchors(element.content);
       if (anchors.length !== 1) return null;
       const date = extractPublicationDate(element.content, checkedAt);
-      return date ? { ...element, anchor: anchors[0], date } : null;
+      const dateInferred = !/\b20\d{2}-\d{2}-\d{2}\b/.test(extractVisibleText(element.content));
+      return date ? { ...element, anchor: anchors[0], date, dateInferred } : null;
     })
     .filter(Boolean);
 
@@ -348,6 +421,7 @@ function parseOfficialDocument(html, source, checkedAt = new Date().toISOString(
   for (const candidate of candidates) {
     const title = cleanText(candidate.anchor.titleHtml);
     if (!isRelevantTitle(title, source)) continue;
+    if (!isRelevantAdmissionCycle(title, candidate.date, checkedAt)) continue;
 
     let url;
     try {
@@ -368,6 +442,7 @@ function parseOfficialDocument(html, source, checkedAt = new Date().toISOString(
       contentHash: makeContentHash(title, category, candidate.date),
       title,
       date: candidate.date,
+      ...(candidate.dateInferred ? { dateInferred: true } : {}),
       url,
       source: source.name,
       sourceId: source.id,
@@ -400,9 +475,9 @@ function mergeAndRankUpdates(updates, limit = 20) {
 
   return unique
     .sort((a, b) => {
-      if (Boolean(a.isTarget2027) !== Boolean(b.isTarget2027)) return a.isTarget2027 ? -1 : 1;
       const dateOrder = String(b.date || '').localeCompare(String(a.date || ''), 'zh-CN');
       if (dateOrder !== 0) return dateOrder;
+      if (Boolean(a.isTarget2027) !== Boolean(b.isTarget2027)) return a.isTarget2027 ? -1 : 1;
       if (Boolean(a.isImportant) !== Boolean(b.isImportant)) return a.isImportant ? -1 : 1;
       return String(a.title || '').localeCompare(String(b.title || ''), 'zh-CN');
     })
@@ -414,7 +489,10 @@ module.exports = {
   cleanText,
   isAllowedOfficialUrl,
   isOfficialHainanUniversityUrl,
+  isRelevantAdmissionCycle,
   mergeAndRankUpdates,
   parseOfficialDocument,
+  parseOfficialPublicationDate,
+  makeContentHash,
   parseOfficialList
 };

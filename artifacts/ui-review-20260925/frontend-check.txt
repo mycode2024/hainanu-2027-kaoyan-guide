@@ -1,0 +1,310 @@
+TAP version 13
+# Subtest: renders current stage from shared milestone data without timeline DOM
+ok 1 - renders current stage from shared milestone data without timeline DOM
+  ---
+  duration_ms: 4.7012
+  type: 'test'
+  ...
+# Subtest: limits the compact homepage feed without truncating the full payload
+ok 2 - limits the compact homepage feed without truncating the full payload
+  ---
+  duration_ms: 15.4433
+  type: 'test'
+  ...
+# Subtest: opens the mobile site navigation and closes it on Escape
+ok 3 - opens the mobile site navigation and closes it on Escape
+  ---
+  duration_ms: 1.1269
+  type: 'test'
+  ...
+# Subtest: marks the intersecting page-toc hash link as the current location and clears the prior link
+ok 4 - marks the intersecting page-toc hash link as the current location and clears the prior link
+  ---
+  duration_ms: 1.5746
+  type: 'test'
+  ...
+# Subtest: resets all registered checklist state only when the reset scope is all
+ok 5 - resets all registered checklist state only when the reset scope is all
+  ---
+  duration_ms: 0.9797
+  type: 'test'
+  ...
+# Subtest: selects the active milestone and the next future milestone
+ok 6 - selects the active milestone and the next future milestone
+  ---
+  duration_ms: 0.4296
+  type: 'test'
+  ...
+# Subtest: returns every overlapping active milestone in chronological order
+ok 7 - returns every overlapping active milestone in chronological order
+  ---
+  duration_ms: 0.4816
+  type: 'test'
+  ...
+# Subtest: treats both milestone boundary dates as active
+ok 8 - treats both milestone boundary dates as active
+  ---
+  duration_ms: 0.4575
+  type: 'test'
+  ...
+# Subtest: returns null next values after the final milestone
+ok 9 - returns null next values after the final milestone
+  ---
+  duration_ms: 0.598
+  type: 'test'
+  ...
+# Subtest: returns a rounded and bounded progress percentage
+ok 10 - returns a rounded and bounded progress percentage
+  ---
+  duration_ms: 0.5565
+  type: 'test'
+  ...
+# Subtest: merges current-page checks without deleting other registered page state
+ok 11 - merges current-page checks without deleting other registered page state
+  ---
+  duration_ms: 0.3752
+  type: 'test'
+  ...
+# Subtest: counts global checklist progress against all 21 registered tasks
+ok 12 - counts global checklist progress against all 21 registered tasks
+  ---
+  duration_ms: 0.3688
+  type: 'test'
+  ...
+# Subtest: filters timeline items without mutating their order
+ok 13 - filters timeline items without mutating their order
+  ---
+  duration_ms: 0.5486
+  type: 'test'
+  ...
+# Subtest: reads a stored checklist object and rejects malformed shapes
+ok 14 - reads a stored checklist object and rejects malformed shapes
+  ---
+  duration_ms: 0.4506
+  type: 'test'
+  ...
+# Subtest: accepts only HTTPS notice links on configured university and CHSI official domains
+ok 15 - accepts only HTTPS notice links on configured university and CHSI official domains
+  ---
+  duration_ms: 0.3677
+  type: 'test'
+  ...
+# Subtest: normalizes the updates API and drops malformed or non-official records
+ok 16 - normalizes the updates API and drops malformed or non-official records
+  ---
+  duration_ms: 0.9736
+  type: 'test'
+  ...
+# Subtest: normalizes v2 freshness, discovery and national policy fields
+ok 17 - normalizes v2 freshness, discovery and national policy fields
+  ---
+  duration_ms: 0.4705
+  type: 'test'
+  ...
+# Subtest: preserves the complete v2 freshness, clocks and update-change contract safely
+ok 18 - preserves the complete v2 freshness, clocks and update-change contract safely
+  ---
+  duration_ms: 0.6063
+  type: 'test'
+  ...
+# Subtest: finds only notices discovered after the last page visit
+ok 19 - finds only notices discovered after the last page visit
+  ---
+  duration_ms: 0.3989
+  type: 'test'
+  ...
+# Subtest: keeps the visit baseline fixed so new badges do not disappear on the next poll
+ok 20 - keeps the visit baseline fixed so new badges do not disappear on the next poll
+  ---
+  duration_ms: 0.3379
+  type: 'test'
+  ...
+# Subtest: uses a stable snapshot key for identical render data
+ok 21 - uses a stable snapshot key for identical render data
+  ---
+  duration_ms: 0.381
+  type: 'test'
+  ...
+# Subtest: keeps new notices selected until explicit acknowledgement
+ok 22 - keeps new notices selected until explicit acknowledgement
+  ---
+  duration_ms: 0.4564
+  type: 'test'
+  ...
+# Subtest: aggregates display notices by normalized URL without changing member identities
+ok 23 - aggregates display notices by normalized URL without changing member identities
+  ---
+  duration_ms: 0.4787
+  type: 'test'
+  ...
+# Subtest: ignores URL fragments when aggregating one notice across official sources
+ok 24 - ignores URL fragments when aggregating one notice across official sources
+  ---
+  duration_ms: 0.4368
+  type: 'test'
+  ...
+# Subtest: source health detail includes the last successful synchronization time
+ok 25 - source health detail includes the last successful synchronization time
+  ---
+  duration_ms: 0.6065
+  type: 'test'
+  ...
+# Subtest: formats freshness using the supplied refresh interval rather than fixed hours
+ok 26 - formats freshness using the supplied refresh interval rather than fixed hours
+  ---
+  duration_ms: 0.3919
+  type: 'test'
+  ...
+# Subtest: formats configured refresh intervals in whole hours or minutes
+ok 27 - formats configured refresh intervals in whole hours or minutes
+  ---
+  duration_ms: 0.3284
+  type: 'test'
+  ...
+# Subtest: renders the live freshness metric with the snapshot refresh interval
+ok 28 - renders the live freshness metric with the snapshot refresh interval
+  ---
+  duration_ms: 1.0578
+  type: 'test'
+  ...
+# Subtest: renders the configured cadence when the next refresh deadline is missing
+ok 29 - renders the configured cadence when the next refresh deadline is missing
+  ---
+  duration_ms: 3.0889
+  type: 'test'
+  ...
+# Subtest: names an overdue source and exposes its degraded freshness in the live console
+ok 30 - names an overdue source and exposes its degraded freshness in the live console
+  ---
+  duration_ms: 1.1446
+  type: 'test'
+  ...
+# Subtest: prioritizes cache-backup recovery over unavailable-source messaging
+ok 31 - prioritizes cache-backup recovery over unavailable-source messaging
+  ---
+  duration_ms: 0.9772
+  type: 'test'
+  ...
+# Subtest: renders one stable aggregated notice with every source name when URLs match
+ok 32 - renders one stable aggregated notice with every source name when URLs match
+  ---
+  duration_ms: 1.5457
+  type: 'test'
+  ...
+# Subtest: does not start a second fetch while a refresh is already in flight
+ok 33 - does not start a second fetch while a refresh is already in flight
+  ---
+  duration_ms: 0.6182
+  type: 'test'
+  ...
+# Subtest: aborts an overdue fetch and restores the refresh control after cleanup
+ok 34 - aborts an overdue fetch and restores the refresh control after cleanup
+  ---
+  duration_ms: 1.2297
+  type: 'test'
+  ...
+# Subtest: resumes immediately after hide then show races with aborted request cleanup
+ok 35 - resumes immediately after hide then show races with aborted request cleanup
+  ---
+  duration_ms: 0.7103
+  type: 'test'
+  ...
+# Subtest: shows a disconnected status while preserving notices and recovers on the next successful refresh
+ok 36 - shows a disconnected status while preserving notices and recovers on the next successful refresh
+  ---
+  duration_ms: 1.3266
+  type: 'test'
+  ...
+# Subtest: a refresh cooldown does not falsely mark a reachable service as disconnected
+ok 37 - a refresh cooldown does not falsely mark a reachable service as disconnected
+  ---
+  duration_ms: 1.177
+  type: 'test'
+  ...
+# Subtest: hiding the page mid-flight does not overwrite the rendered console status
+ok 38 - hiding the page mid-flight does not overwrite the rendered console status
+  ---
+  duration_ms: 1.2341
+  type: 'test'
+  ...
+# Subtest: does not replace the rendered update list for an identical later snapshot
+ok 39 - does not replace the rendered update list for an identical later snapshot
+  ---
+  duration_ms: 1.4447
+  type: 'test'
+  ...
+# Subtest: falls back to visible session-only storage when local storage throws
+ok 40 - falls back to visible session-only storage when local storage throws
+  ---
+  duration_ms: 1.2681
+  type: 'test'
+  ...
+# Subtest: sets printable checked and unchecked task states from live checkbox state
+ok 41 - sets printable checked and unchecked task states from live checkbox state
+  ---
+  duration_ms: 0.6886
+  type: 'test'
+  ...
+# Subtest: keeps checkbox progress and printable state usable when local storage throws
+ok 42 - keeps checkbox progress and printable state usable when local storage throws
+  ---
+  duration_ms: 0.6301
+  type: 'test'
+  ...
+# Subtest: acknowledges new notices in the current session when local storage cannot persist
+ok 43 - acknowledges new notices in the current session when local storage cannot persist
+  ---
+  duration_ms: 1.651
+  type: 'test'
+  ...
+# Subtest: paginates notices after date sorting and resets filters and shrinking snapshots safely
+ok 44 - paginates notices after date sorting and resets filters and shrinking snapshots safely
+  ---
+  duration_ms: 4.1842
+  type: 'test'
+  ...
+# Subtest: old section bookmarks point to their new pages including file-mode paths
+ok 45 - old section bookmarks point to their new pages including file-mode paths
+  ---
+  duration_ms: 0.5163
+  type: 'test'
+  ...
+# Subtest: every static printable task label starts with an honest unfinished state
+ok 46 - every static printable task label starts with an honest unfinished state
+  ---
+  duration_ms: 23.3498
+  type: 'test'
+  ...
+# Subtest: preserves the actual static review date when the page is opened on a later day
+ok 47 - preserves the actual static review date when the page is opened on a later day
+  ---
+  duration_ms: 1.3344
+  type: 'test'
+  ...
+# Subtest: sorts official updates strictly by publication date descending first
+ok 48 - sorts official updates strictly by publication date descending first
+  ---
+  duration_ms: 0.594
+  type: 'test'
+  ...
+# Subtest: always shows a full publication year and distinguishes previous admission cycles
+ok 49 - always shows a full publication year and distinguishes previous admission cycles
+  ---
+  duration_ms: 1.6133
+  type: 'test'
+  ...
+# Subtest: print media keeps detail-page hero copy readable on a white background
+ok 50 - print media keeps detail-page hero copy readable on a white background
+  ---
+  duration_ms: 1.1604
+  type: 'test'
+  ...
+1..50
+# tests 50
+# suites 0
+# pass 50
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 181.2711

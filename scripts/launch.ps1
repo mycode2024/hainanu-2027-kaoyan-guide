@@ -150,31 +150,7 @@ function Remove-PidIfOwned {
     }
 }
 
-function Remove-OldLogPairs {
-    param([ValidateRange(0, 14)][int]$Keep)
-
-    $pairs = Get-ChildItem -LiteralPath $dataDirectory -File -Filter 'server-*.log' |
-        Where-Object { $_.Name -notlike '*.error.log' } |
-        ForEach-Object {
-            $errorPath = Join-Path $dataDirectory ($_.BaseName + '.error.log')
-            if (Test-Path -LiteralPath $errorPath) {
-                [PSCustomObject]@{
-                    Name = $_.Name
-                    LastWriteTimeUtc = $_.LastWriteTimeUtc
-                    StandardPath = $_.FullName
-                    ErrorPath = $errorPath
-                }
-            }
-        }
-
-    $pairs |
-        Sort-Object -Property @{ Expression = 'LastWriteTimeUtc'; Descending = $true }, @{ Expression = 'Name'; Descending = $true } |
-        Select-Object -Skip $Keep |
-        ForEach-Object {
-            Remove-Item -LiteralPath $_.StandardPath -Force
-            Remove-Item -LiteralPath $_.ErrorPath -Force
-        }
-}
+. (Join-Path $PSScriptRoot 'log-cleanup.ps1')
 
 $nodeCommand = Get-Command node -ErrorAction SilentlyContinue
 if (-not $nodeCommand) {
@@ -203,7 +179,7 @@ New-Item -ItemType Directory -Path $dataDirectory -Force | Out-Null
             throw 'Timed out waiting for another guide launch to finish.'
         }
 
-        Invoke-WithProjectLogMutex -Action { Remove-OldLogPairs -Keep 14 } | Out-Null
+        Invoke-WithProjectLogMutex -Action { Remove-OldLogPairs -DataDirectory $dataDirectory -Keep 14 } | Out-Null
         $readinessBudgetMs = 15000
         $readinessTimer = [System.Diagnostics.Stopwatch]::StartNew()
         if (Test-GuideLive -Timer $readinessTimer -BudgetMilliseconds $readinessBudgetMs) {
@@ -216,7 +192,7 @@ New-Item -ItemType Directory -Path $dataDirectory -Force | Out-Null
             $errorLog = $null
             try {
                 $launchDetails = Invoke-WithProjectLogMutex -Action {
-                    Remove-OldLogPairs -Keep 13
+                    Remove-OldLogPairs -DataDirectory $dataDirectory -Keep 13
                     $timestamp = Get-Date -Format 'yyyyMMdd-HHmmss-fff'
                     $launchNonce = [Guid]::NewGuid().ToString('N')
                     $allocatedStandardLog = Join-Path $dataDirectory "server-$Port-$timestamp-$launchNonce.log"

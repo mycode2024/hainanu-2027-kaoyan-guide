@@ -1,0 +1,46 @@
+TAP version 13
+# Subtest: includes current recommended-admission rules and retained target-year contact notices
+ok 1 - includes current recommended-admission rules and retained target-year contact notices
+  ---
+  duration_ms: 34.0509
+  type: 'test'
+  ...
+# Subtest: discards legacy homepage years before an offline refresh can carry them forward
+ok 2 - discards legacy homepage years before an offline refresh can carry them forward
+  ---
+  duration_ms: 0.2673
+  type: 'test'
+  ...
+# Subtest: reads publication metadata instead of dates in the notice body
+ok 3 - reads publication metadata instead of dates in the notice body
+  ---
+  duration_ms: 0.8187
+  type: 'test'
+  ...
+# Subtest: verifies yearless homepage dates against the article even after the anniversary
+ok 4 - verifies yearless homepage dates against the article even after the anniversary
+  ---
+  duration_ms: 1.3605
+  type: 'test'
+  ...
+# Subtest: never publishes a guessed year if the article has no verifiable publication date
+ok 5 - never publishes a guessed year if the article has no verifiable publication date
+  ---
+  duration_ms: 0.931
+  type: 'test'
+  ...
+# Subtest: newly discovered older notices do not jump ahead of recent cached notices
+ok 6 - newly discovered older notices do not jump ahead of recent cached notices
+  ---
+  duration_ms: 1.6743
+  type: 'test'
+  ...
+1..6
+# tests 6
+# suites 0
+# pass 6
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 114.7398

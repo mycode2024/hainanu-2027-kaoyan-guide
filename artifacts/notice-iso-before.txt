@@ -1,0 +1,68 @@
+TAP version 13
+# Subtest: includes current recommended-admission rules and retained target-year contact notices
+ok 1 - includes current recommended-admission rules and retained target-year contact notices
+  ---
+  duration_ms: 33.1486
+  type: 'test'
+  ...
+# Subtest: discards legacy homepage years before an offline refresh can carry them forward
+ok 2 - discards legacy homepage years before an offline refresh can carry them forward
+  ---
+  duration_ms: 0.3036
+  type: 'test'
+  ...
+# Subtest: reads publication metadata instead of dates in the notice body
+not ok 3 - reads publication metadata instead of dates in the notice body
+  ---
+  duration_ms: 1.4632
+  type: 'test'
+  location: 'D:\\DefaultQuickAccessFiles\\Desktop\\hainanu-2027-kaoyan-guide\\tests\\notice-dates.test.cjs:25:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+    
+    + null
+    - '2026-09-20'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: '2026-09-20'
+  actual: ~
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (D:\DefaultQuickAccessFiles\Desktop\hainanu-2027-kaoyan-guide\tests\notice-dates.test.cjs:29:10)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: verifies yearless homepage dates against the article even after the anniversary
+ok 4 - verifies yearless homepage dates against the article even after the anniversary
+  ---
+  duration_ms: 1.4416
+  type: 'test'
+  ...
+# Subtest: never publishes a guessed year if the article has no verifiable publication date
+ok 5 - never publishes a guessed year if the article has no verifiable publication date
+  ---
+  duration_ms: 1.0529
+  type: 'test'
+  ...
+# Subtest: newly discovered older notices do not jump ahead of recent cached notices
+ok 6 - newly discovered older notices do not jump ahead of recent cached notices
+  ---
+  duration_ms: 1.7557
+  type: 'test'
+  ...
+1..6
+# tests 6
+# suites 0
+# pass 5
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 110.7769

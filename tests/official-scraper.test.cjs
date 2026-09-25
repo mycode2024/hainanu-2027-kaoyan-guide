@@ -72,6 +72,33 @@ test('parses official list variants into safe absolute notice records', () => {
   );
 });
 
+test('masks script bodies when an unquoted attribute value ends with a slash', () => {
+  const { parseOfficialList } = loadScraper();
+  const html = [
+    '<ul>',
+    '<li><script src=/app.js/>window.noticeDate = "2021-01-01";</script>',
+    '<a href="../info/1024/9001.htm">海南大学2027年硕士研究生招生简章</a><span>2026-09-01</span></li>',
+    '</ul>'
+  ].join('');
+  const updates = parseOfficialList(html, graduateSource);
+  assert.equal(updates.length, 1);
+  assert.equal(updates[0].date, '2026-09-01');
+});
+
+test('masks template bodies when an unquoted attribute value ends with a slash', () => {
+  const { parseOfficialList } = loadScraper();
+  const html = [
+    '<ul>',
+    '<li><template data-x=/><a href="../info/1024/9999.htm">幽灵公告</a><span>2026-09-02</span></template>',
+    '<a href="../info/1024/9001.htm">海南大学2027年硕士研究生招生简章</a><span>2026-09-01</span></li>',
+    '</ul>'
+  ].join('');
+  const updates = parseOfficialList(html, graduateSource);
+  assert.equal(updates.length, 1);
+  assert.equal(updates[0].title, '海南大学2027年硕士研究生招生简章');
+  assert.equal(updates[0].url, 'https://gs.hainanu.edu.cn/info/1024/9001.htm');
+});
+
 test('deduplicates updates and prioritizes target-cycle actionable notices', () => {
   const { mergeAndRankUpdates } = loadScraper();
   assert.equal(typeof mergeAndRankUpdates, 'function', 'mergeAndRankUpdates must be exported');

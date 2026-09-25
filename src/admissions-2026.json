@@ -1,0 +1,954 @@
+{
+  "year": 2026,
+  "examYear": 2025,
+  "verifiedAt": "2026-09-23",
+  "sourceUrl": "https://gs.hainanu.edu.cn/__local/0/6D/6F/CB936332381D12B6ACB9BBAB8EF_4E26C726_110B69.pdf",
+  "sourceTitle": "海南大学2026年硕士研究生拟录取名单（不含推免生）",
+  "announcementUrl": "https://gs.hainanu.edu.cn/info/1024/8562.htm",
+  "announcementDate": "2026-04-27",
+  "rulesUrl": "https://cs.hainanu.edu.cn/info/1086/11860.htm",
+  "rulesDate": "2026-03-24",
+  "scope": "2025年12月初试、2026年录取；学院代码812；拟录取公示口径，不代表最终报到人数；未区分一志愿与调剂",
+  "records": [
+    {
+      "sourceRow": 1458,
+      "sourcePage": 53,
+      "program": "081200",
+      "mode": "全日制",
+      "initial": 340,
+      "retest": 80.2,
+      "composite": 72.88,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1459,
+      "sourcePage": 53,
+      "program": "081200",
+      "mode": "全日制",
+      "initial": 338,
+      "retest": 79.0,
+      "composite": 72.16,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1460,
+      "sourcePage": 53,
+      "program": "081200",
+      "mode": "全日制",
+      "initial": 318,
+      "retest": 84.8,
+      "composite": 72.08,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1461,
+      "sourcePage": 53,
+      "program": "081200",
+      "mode": "全日制",
+      "initial": 333,
+      "retest": 79.3,
+      "composite": 71.68,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1462,
+      "sourcePage": 53,
+      "program": "081200",
+      "mode": "全日制",
+      "initial": 318,
+      "retest": 82.1,
+      "composite": 71.0,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1463,
+      "sourcePage": 53,
+      "program": "081200",
+      "mode": "全日制",
+      "initial": 320,
+      "retest": 81.2,
+      "composite": 70.88,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1464,
+      "sourcePage": 53,
+      "program": "081200",
+      "mode": "全日制",
+      "initial": 310,
+      "retest": 82.5,
+      "composite": 70.2,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1465,
+      "sourcePage": 53,
+      "program": "081200",
+      "mode": "全日制",
+      "initial": 313,
+      "retest": 81.4,
+      "composite": 70.12,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1466,
+      "sourcePage": 53,
+      "program": "081200",
+      "mode": "全日制",
+      "initial": 317,
+      "retest": 79.7,
+      "composite": 69.92,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1467,
+      "sourcePage": 53,
+      "program": "081200",
+      "mode": "全日制",
+      "initial": 333,
+      "retest": 72.7,
+      "composite": 69.04,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1468,
+      "sourcePage": 53,
+      "program": "081200",
+      "mode": "全日制",
+      "initial": 305,
+      "retest": 80.0,
+      "composite": 68.6,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1469,
+      "sourcePage": 53,
+      "program": "081200",
+      "mode": "全日制",
+      "initial": 317,
+      "retest": 76.2,
+      "composite": 68.52,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1470,
+      "sourcePage": 53,
+      "program": "081200",
+      "mode": "全日制",
+      "initial": 301,
+      "retest": 79.6,
+      "composite": 67.96,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1471,
+      "sourcePage": 53,
+      "program": "081200",
+      "mode": "全日制",
+      "initial": 291,
+      "retest": 81.5,
+      "composite": 67.52,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1472,
+      "sourcePage": 53,
+      "program": "081200",
+      "mode": "全日制",
+      "initial": 320,
+      "retest": 72.4,
+      "composite": 67.36,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1473,
+      "sourcePage": 53,
+      "program": "081200",
+      "mode": "全日制",
+      "initial": 313,
+      "retest": 74.5,
+      "composite": 67.36,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1474,
+      "sourcePage": 53,
+      "program": "081200",
+      "mode": "全日制",
+      "initial": 304,
+      "retest": 76.8,
+      "composite": 67.2,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1475,
+      "sourcePage": 53,
+      "program": "081200",
+      "mode": "全日制",
+      "initial": 298,
+      "retest": 78.3,
+      "composite": 67.08,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1476,
+      "sourcePage": 53,
+      "program": "081200",
+      "mode": "全日制",
+      "initial": 309,
+      "retest": 72.8,
+      "composite": 66.2,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1477,
+      "sourcePage": 53,
+      "program": "085404",
+      "mode": "全日制",
+      "initial": 407,
+      "retest": 82.61,
+      "composite": 81.88,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1478,
+      "sourcePage": 53,
+      "program": "085404",
+      "mode": "全日制",
+      "initial": 400,
+      "retest": 83.36,
+      "composite": 81.34,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1479,
+      "sourcePage": 53,
+      "program": "085404",
+      "mode": "全日制",
+      "initial": 402,
+      "retest": 81.21,
+      "composite": 80.72,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1480,
+      "sourcePage": 53,
+      "program": "085404",
+      "mode": "全日制",
+      "initial": 401,
+      "retest": 81.5,
+      "composite": 80.72,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1481,
+      "sourcePage": 53,
+      "program": "085404",
+      "mode": "全日制",
+      "initial": 381,
+      "retest": 83.25,
+      "composite": 79.02,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1482,
+      "sourcePage": 53,
+      "program": "085404",
+      "mode": "全日制",
+      "initial": 393,
+      "retest": 78.81,
+      "composite": 78.68,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1483,
+      "sourcePage": 53,
+      "program": "085404",
+      "mode": "全日制",
+      "initial": 365,
+      "retest": 82.18,
+      "composite": 76.67,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1484,
+      "sourcePage": 53,
+      "program": "085404",
+      "mode": "全日制",
+      "initial": 365,
+      "retest": 80.79,
+      "composite": 76.12,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1485,
+      "sourcePage": 54,
+      "program": "085404",
+      "mode": "全日制",
+      "initial": 363,
+      "retest": 81.37,
+      "composite": 76.11,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1486,
+      "sourcePage": 54,
+      "program": "085404",
+      "mode": "全日制",
+      "initial": 341,
+      "retest": 85.02,
+      "composite": 74.93,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1487,
+      "sourcePage": 54,
+      "program": "085404",
+      "mode": "全日制",
+      "initial": 343,
+      "retest": 84.28,
+      "composite": 74.87,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1488,
+      "sourcePage": 54,
+      "program": "085404",
+      "mode": "全日制",
+      "initial": 358,
+      "retest": 79.53,
+      "composite": 74.77,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1489,
+      "sourcePage": 54,
+      "program": "085404",
+      "mode": "全日制",
+      "initial": 360,
+      "retest": 78.32,
+      "composite": 74.53,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1490,
+      "sourcePage": 54,
+      "program": "085404",
+      "mode": "全日制",
+      "initial": 364,
+      "retest": 76.49,
+      "composite": 74.28,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1491,
+      "sourcePage": 54,
+      "program": "085404",
+      "mode": "全日制",
+      "initial": 376,
+      "retest": 72.27,
+      "composite": 74.03,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1492,
+      "sourcePage": 54,
+      "program": "085404",
+      "mode": "全日制",
+      "initial": 359,
+      "retest": 77.31,
+      "composite": 74.0,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1493,
+      "sourcePage": 54,
+      "program": "085404",
+      "mode": "全日制",
+      "initial": 355,
+      "retest": 78.0,
+      "composite": 73.8,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1494,
+      "sourcePage": 54,
+      "program": "085404",
+      "mode": "全日制",
+      "initial": 352,
+      "retest": 78.19,
+      "composite": 73.52,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1495,
+      "sourcePage": 54,
+      "program": "085404",
+      "mode": "全日制",
+      "initial": 351,
+      "retest": 78.3,
+      "composite": 73.44,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1496,
+      "sourcePage": 54,
+      "program": "085404",
+      "mode": "全日制",
+      "initial": 338,
+      "retest": 81.81,
+      "composite": 73.28,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1497,
+      "sourcePage": 54,
+      "program": "085404",
+      "mode": "全日制",
+      "initial": 378,
+      "retest": 69.32,
+      "composite": 73.09,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1498,
+      "sourcePage": 54,
+      "program": "085404",
+      "mode": "全日制",
+      "initial": 376,
+      "retest": 69.61,
+      "composite": 72.96,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1499,
+      "sourcePage": 54,
+      "program": "085404",
+      "mode": "全日制",
+      "initial": 371,
+      "retest": 69.78,
+      "composite": 72.43,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1500,
+      "sourcePage": 54,
+      "program": "085404",
+      "mode": "全日制",
+      "initial": 357,
+      "retest": 73.62,
+      "composite": 72.29,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1501,
+      "sourcePage": 54,
+      "program": "085404",
+      "mode": "全日制",
+      "initial": 339,
+      "retest": 76.8,
+      "composite": 71.4,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1502,
+      "sourcePage": 54,
+      "program": "085404",
+      "mode": "全日制",
+      "initial": 339,
+      "retest": 75.41,
+      "composite": 70.84,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1503,
+      "sourcePage": 54,
+      "program": "085404",
+      "mode": "全日制",
+      "initial": 330,
+      "retest": 77.69,
+      "composite": 70.68,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1504,
+      "sourcePage": 54,
+      "program": "085404",
+      "mode": "全日制",
+      "initial": 309,
+      "retest": 73.6,
+      "composite": 66.52,
+      "plan": "骨干计划"
+    },
+    {
+      "sourceRow": 1505,
+      "sourcePage": 54,
+      "program": "085405",
+      "mode": "全日制",
+      "initial": 409,
+      "retest": 88.48,
+      "composite": 84.47,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1506,
+      "sourcePage": 54,
+      "program": "085405",
+      "mode": "全日制",
+      "initial": 387,
+      "retest": 79.45,
+      "composite": 78.22,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1507,
+      "sourcePage": 54,
+      "program": "085405",
+      "mode": "全日制",
+      "initial": 386,
+      "retest": 79.44,
+      "composite": 78.1,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1508,
+      "sourcePage": 54,
+      "program": "085405",
+      "mode": "全日制",
+      "initial": 379,
+      "retest": 81.54,
+      "composite": 78.1,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1509,
+      "sourcePage": 54,
+      "program": "085405",
+      "mode": "全日制",
+      "initial": 388,
+      "retest": 77.04,
+      "composite": 77.38,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1510,
+      "sourcePage": 54,
+      "program": "085405",
+      "mode": "全日制",
+      "initial": 393,
+      "retest": 74.92,
+      "composite": 77.13,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1511,
+      "sourcePage": 54,
+      "program": "085405",
+      "mode": "全日制",
+      "initial": 377,
+      "retest": 79.7,
+      "composite": 77.12,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1512,
+      "sourcePage": 54,
+      "program": "085405",
+      "mode": "全日制",
+      "initial": 372,
+      "retest": 80.84,
+      "composite": 76.98,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1513,
+      "sourcePage": 55,
+      "program": "085405",
+      "mode": "全日制",
+      "initial": 378,
+      "retest": 78.94,
+      "composite": 76.94,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1514,
+      "sourcePage": 55,
+      "program": "085405",
+      "mode": "全日制",
+      "initial": 390,
+      "retest": 74.8,
+      "composite": 76.72,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1515,
+      "sourcePage": 55,
+      "program": "085405",
+      "mode": "全日制",
+      "initial": 373,
+      "retest": 77.95,
+      "composite": 75.94,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1516,
+      "sourcePage": 55,
+      "program": "085405",
+      "mode": "全日制",
+      "initial": 386,
+      "retest": 73.15,
+      "composite": 75.58,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1517,
+      "sourcePage": 55,
+      "program": "085405",
+      "mode": "全日制",
+      "initial": 355,
+      "retest": 81.39,
+      "composite": 75.16,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1518,
+      "sourcePage": 55,
+      "program": "085405",
+      "mode": "全日制",
+      "initial": 364,
+      "retest": 78.37,
+      "composite": 75.03,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1519,
+      "sourcePage": 55,
+      "program": "085405",
+      "mode": "全日制",
+      "initial": 373,
+      "retest": 75.35,
+      "composite": 74.9,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1520,
+      "sourcePage": 55,
+      "program": "085405",
+      "mode": "全日制",
+      "initial": 366,
+      "retest": 77.15,
+      "composite": 74.78,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1521,
+      "sourcePage": 55,
+      "program": "085405",
+      "mode": "全日制",
+      "initial": 377,
+      "retest": 73.65,
+      "composite": 74.7,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1522,
+      "sourcePage": 55,
+      "program": "085405",
+      "mode": "全日制",
+      "initial": 375,
+      "retest": 74.16,
+      "composite": 74.66,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1523,
+      "sourcePage": 55,
+      "program": "085405",
+      "mode": "全日制",
+      "initial": 353,
+      "retest": 80.7,
+      "composite": 74.64,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1524,
+      "sourcePage": 55,
+      "program": "085405",
+      "mode": "全日制",
+      "initial": 353,
+      "retest": 80.2,
+      "composite": 74.44,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1525,
+      "sourcePage": 55,
+      "program": "085405",
+      "mode": "全日制",
+      "initial": 352,
+      "retest": 80.33,
+      "composite": 74.37,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1526,
+      "sourcePage": 55,
+      "program": "085405",
+      "mode": "全日制",
+      "initial": 372,
+      "retest": 74.3,
+      "composite": 74.36,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1527,
+      "sourcePage": 55,
+      "program": "085405",
+      "mode": "全日制",
+      "initial": 355,
+      "retest": 78.91,
+      "composite": 74.16,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1528,
+      "sourcePage": 55,
+      "program": "085405",
+      "mode": "全日制",
+      "initial": 370,
+      "retest": 74.18,
+      "composite": 74.07,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1529,
+      "sourcePage": 55,
+      "program": "085405",
+      "mode": "全日制",
+      "initial": 378,
+      "retest": 71.3,
+      "composite": 73.88,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1530,
+      "sourcePage": 55,
+      "program": "085405",
+      "mode": "全日制",
+      "initial": 368,
+      "retest": 74.29,
+      "composite": 73.88,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1531,
+      "sourcePage": 55,
+      "program": "085405",
+      "mode": "全日制",
+      "initial": 342,
+      "retest": 81.9,
+      "composite": 73.8,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1532,
+      "sourcePage": 55,
+      "program": "085405",
+      "mode": "全日制",
+      "initial": 359,
+      "retest": 76.25,
+      "composite": 73.58,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1533,
+      "sourcePage": 55,
+      "program": "085405",
+      "mode": "全日制",
+      "initial": 368,
+      "retest": 73.27,
+      "composite": 73.47,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1534,
+      "sourcePage": 55,
+      "program": "085405",
+      "mode": "全日制",
+      "initial": 347,
+      "retest": 79.42,
+      "composite": 73.41,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1535,
+      "sourcePage": 55,
+      "program": "085405",
+      "mode": "全日制",
+      "initial": 356,
+      "retest": 76.6,
+      "composite": 73.36,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1536,
+      "sourcePage": 55,
+      "program": "085405",
+      "mode": "全日制",
+      "initial": 347,
+      "retest": 79.23,
+      "composite": 73.33,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1537,
+      "sourcePage": 55,
+      "program": "085405",
+      "mode": "全日制",
+      "initial": 368,
+      "retest": 72.53,
+      "composite": 73.17,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1538,
+      "sourcePage": 55,
+      "program": "085405",
+      "mode": "全日制",
+      "initial": 369,
+      "retest": 71.86,
+      "composite": 73.02,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1539,
+      "sourcePage": 55,
+      "program": "085405",
+      "mode": "全日制",
+      "initial": 344,
+      "retest": 78.64,
+      "composite": 72.74,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1540,
+      "sourcePage": 55,
+      "program": "085405",
+      "mode": "全日制",
+      "initial": 359,
+      "retest": 73.63,
+      "composite": 72.53,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1541,
+      "sourcePage": 56,
+      "program": "085405",
+      "mode": "全日制",
+      "initial": 365,
+      "retest": 71.66,
+      "composite": 72.46,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1542,
+      "sourcePage": 56,
+      "program": "085405",
+      "mode": "全日制",
+      "initial": 347,
+      "retest": 77.04,
+      "composite": 72.46,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1543,
+      "sourcePage": 56,
+      "program": "085405",
+      "mode": "全日制",
+      "initial": 344,
+      "retest": 77.93,
+      "composite": 72.45,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1544,
+      "sourcePage": 56,
+      "program": "085405",
+      "mode": "全日制",
+      "initial": 349,
+      "retest": 74.94,
+      "composite": 71.86,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1545,
+      "sourcePage": 56,
+      "program": "085405",
+      "mode": "全日制",
+      "initial": 346,
+      "retest": 75.56,
+      "composite": 71.74,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1546,
+      "sourcePage": 56,
+      "program": "085405",
+      "mode": "全日制",
+      "initial": 357,
+      "retest": 72.16,
+      "composite": 71.7,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1547,
+      "sourcePage": 56,
+      "program": "085405",
+      "mode": "全日制",
+      "initial": 343,
+      "retest": 75.55,
+      "composite": 71.38,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1548,
+      "sourcePage": 56,
+      "program": "085405",
+      "mode": "全日制",
+      "initial": 350,
+      "retest": 73.17,
+      "composite": 71.27,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1549,
+      "sourcePage": 56,
+      "program": "085405",
+      "mode": "全日制",
+      "initial": 346,
+      "retest": 74.18,
+      "composite": 71.19,
+      "plan": "普通计划"
+    },
+    {
+      "sourceRow": 1550,
+      "sourcePage": 56,
+      "program": "085405",
+      "mode": "全日制",
+      "initial": 298,
+      "retest": 64.25,
+      "composite": 61.46,
+      "plan": "士兵专项"
+    },
+    {
+      "sourceRow": 1551,
+      "sourcePage": 56,
+      "program": "085405",
+      "mode": "全日制",
+      "initial": 251,
+      "retest": 71.77,
+      "composite": 58.83,
+      "plan": "士兵专项"
+    }
+  ]
+}

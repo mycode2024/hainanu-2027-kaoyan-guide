@@ -1,0 +1,408 @@
+TAP version 13
+# Subtest: renders current stage from shared milestone data without timeline DOM
+ok 1 - renders current stage from shared milestone data without timeline DOM
+  ---
+  duration_ms: 5.4421
+  type: 'test'
+  ...
+# Subtest: limits the compact homepage feed without truncating the full payload
+ok 2 - limits the compact homepage feed without truncating the full payload
+  ---
+  duration_ms: 16.4819
+  type: 'test'
+  ...
+# Subtest: opens the mobile site navigation and closes it on Escape
+ok 3 - opens the mobile site navigation and closes it on Escape
+  ---
+  duration_ms: 1.2002
+  type: 'test'
+  ...
+# Subtest: marks the intersecting page-toc hash link as the current location and clears the prior link
+ok 4 - marks the intersecting page-toc hash link as the current location and clears the prior link
+  ---
+  duration_ms: 1.3
+  type: 'test'
+  ...
+# Subtest: resets all registered checklist state only when the reset scope is all
+ok 5 - resets all registered checklist state only when the reset scope is all
+  ---
+  duration_ms: 1.4662
+  type: 'test'
+  ...
+# Subtest: selects the active milestone and the next future milestone
+ok 6 - selects the active milestone and the next future milestone
+  ---
+  duration_ms: 0.495
+  type: 'test'
+  ...
+# Subtest: returns every overlapping active milestone in chronological order
+ok 7 - returns every overlapping active milestone in chronological order
+  ---
+  duration_ms: 0.4767
+  type: 'test'
+  ...
+# Subtest: treats both milestone boundary dates as active
+ok 8 - treats both milestone boundary dates as active
+  ---
+  duration_ms: 0.4937
+  type: 'test'
+  ...
+# Subtest: returns null next values after the final milestone
+ok 9 - returns null next values after the final milestone
+  ---
+  duration_ms: 0.7376
+  type: 'test'
+  ...
+# Subtest: returns a rounded and bounded progress percentage
+ok 10 - returns a rounded and bounded progress percentage
+  ---
+  duration_ms: 0.9218
+  type: 'test'
+  ...
+# Subtest: merges current-page checks without deleting other registered page state
+ok 11 - merges current-page checks without deleting other registered page state
+  ---
+  duration_ms: 0.4631
+  type: 'test'
+  ...
+# Subtest: counts global checklist progress against all 21 registered tasks
+ok 12 - counts global checklist progress against all 21 registered tasks
+  ---
+  duration_ms: 0.4146
+  type: 'test'
+  ...
+# Subtest: filters timeline items without mutating their order
+ok 13 - filters timeline items without mutating their order
+  ---
+  duration_ms: 0.5763
+  type: 'test'
+  ...
+# Subtest: reads a stored checklist object and rejects malformed shapes
+ok 14 - reads a stored checklist object and rejects malformed shapes
+  ---
+  duration_ms: 0.5
+  type: 'test'
+  ...
+# Subtest: accepts only HTTPS notice links on configured university and CHSI official domains
+ok 15 - accepts only HTTPS notice links on configured university and CHSI official domains
+  ---
+  duration_ms: 0.3874
+  type: 'test'
+  ...
+# Subtest: normalizes the updates API and drops malformed or non-official records
+ok 16 - normalizes the updates API and drops malformed or non-official records
+  ---
+  duration_ms: 0.7025
+  type: 'test'
+  ...
+# Subtest: normalizes v2 freshness, discovery and national policy fields
+ok 17 - normalizes v2 freshness, discovery and national policy fields
+  ---
+  duration_ms: 0.5589
+  type: 'test'
+  ...
+# Subtest: preserves the complete v2 freshness, clocks and update-change contract safely
+ok 18 - preserves the complete v2 freshness, clocks and update-change contract safely
+  ---
+  duration_ms: 1.054
+  type: 'test'
+  ...
+# Subtest: finds only notices discovered after the last page visit
+ok 19 - finds only notices discovered after the last page visit
+  ---
+  duration_ms: 0.5036
+  type: 'test'
+  ...
+# Subtest: keeps the visit baseline fixed so new badges do not disappear on the next poll
+ok 20 - keeps the visit baseline fixed so new badges do not disappear on the next poll
+  ---
+  duration_ms: 0.4874
+  type: 'test'
+  ...
+# Subtest: uses a stable snapshot key for identical render data
+ok 21 - uses a stable snapshot key for identical render data
+  ---
+  duration_ms: 0.4943
+  type: 'test'
+  ...
+# Subtest: keeps new notices selected until explicit acknowledgement
+ok 22 - keeps new notices selected until explicit acknowledgement
+  ---
+  duration_ms: 0.4664
+  type: 'test'
+  ...
+# Subtest: aggregates display notices by normalized URL without changing member identities
+ok 23 - aggregates display notices by normalized URL without changing member identities
+  ---
+  duration_ms: 0.5025
+  type: 'test'
+  ...
+# Subtest: ignores URL fragments when aggregating one notice across official sources
+ok 24 - ignores URL fragments when aggregating one notice across official sources
+  ---
+  duration_ms: 0.4004
+  type: 'test'
+  ...
+# Subtest: source health detail includes the last successful synchronization time
+ok 25 - source health detail includes the last successful synchronization time
+  ---
+  duration_ms: 0.6705
+  type: 'test'
+  ...
+# Subtest: formats freshness using the supplied refresh interval rather than fixed hours
+ok 26 - formats freshness using the supplied refresh interval rather than fixed hours
+  ---
+  duration_ms: 0.4002
+  type: 'test'
+  ...
+# Subtest: formats configured refresh intervals in whole hours or minutes
+ok 27 - formats configured refresh intervals in whole hours or minutes
+  ---
+  duration_ms: 0.4669
+  type: 'test'
+  ...
+# Subtest: renders the live freshness metric with the snapshot refresh interval
+ok 28 - renders the live freshness metric with the snapshot refresh interval
+  ---
+  duration_ms: 1.2434
+  type: 'test'
+  ...
+# Subtest: renders the configured cadence when the next refresh deadline is missing
+ok 29 - renders the configured cadence when the next refresh deadline is missing
+  ---
+  duration_ms: 3.2216
+  type: 'test'
+  ...
+# Subtest: names an overdue source and exposes its degraded freshness in the live console
+ok 30 - names an overdue source and exposes its degraded freshness in the live console
+  ---
+  duration_ms: 1.1303
+  type: 'test'
+  ...
+# Subtest: prioritizes cache-backup recovery over unavailable-source messaging
+ok 31 - prioritizes cache-backup recovery over unavailable-source messaging
+  ---
+  duration_ms: 1.0226
+  type: 'test'
+  ...
+# Subtest: renders one stable aggregated notice with every source name when URLs match
+ok 32 - renders one stable aggregated notice with every source name when URLs match
+  ---
+  duration_ms: 1.7557
+  type: 'test'
+  ...
+# Subtest: does not start a second fetch while a refresh is already in flight
+ok 33 - does not start a second fetch while a refresh is already in flight
+  ---
+  duration_ms: 0.7101
+  type: 'test'
+  ...
+# Subtest: aborts an overdue fetch and restores the refresh control after cleanup
+ok 34 - aborts an overdue fetch and restores the refresh control after cleanup
+  ---
+  duration_ms: 1.1935
+  type: 'test'
+  ...
+# Subtest: resumes immediately after hide then show races with aborted request cleanup
+ok 35 - resumes immediately after hide then show races with aborted request cleanup
+  ---
+  duration_ms: 0.7629
+  type: 'test'
+  ...
+# Subtest: keeps the last rendered connection status when a later refresh fails
+ok 36 - keeps the last rendered connection status when a later refresh fails
+  ---
+  duration_ms: 1.8636
+  type: 'test'
+  ...
+# Subtest: hiding the page mid-flight does not overwrite the rendered console status
+ok 37 - hiding the page mid-flight does not overwrite the rendered console status
+  ---
+  duration_ms: 1.0292
+  type: 'test'
+  ...
+# Subtest: does not replace the rendered update list for an identical later snapshot
+ok 38 - does not replace the rendered update list for an identical later snapshot
+  ---
+  duration_ms: 1.4447
+  type: 'test'
+  ...
+# Subtest: falls back to visible session-only storage when local storage throws
+ok 39 - falls back to visible session-only storage when local storage throws
+  ---
+  duration_ms: 0.6938
+  type: 'test'
+  ...
+# Subtest: sets printable checked and unchecked task states from live checkbox state
+ok 40 - sets printable checked and unchecked task states from live checkbox state
+  ---
+  duration_ms: 0.6725
+  type: 'test'
+  ...
+# Subtest: keeps checkbox progress and printable state usable when local storage throws
+ok 41 - keeps checkbox progress and printable state usable when local storage throws
+  ---
+  duration_ms: 0.6347
+  type: 'test'
+  ...
+# Subtest: acknowledges new notices in the current session when local storage cannot persist
+ok 42 - acknowledges new notices in the current session when local storage cannot persist
+  ---
+  duration_ms: 2.244
+  type: 'test'
+  ...
+# Subtest: every static printable task label starts with an honest unfinished state
+ok 43 - every static printable task label starts with an honest unfinished state
+  ---
+  duration_ms: 61.3727
+  type: 'test'
+  ...
+# Subtest: dynamically updates verified-date and footer date to the current day
+ok 44 - dynamically updates verified-date and footer date to the current day
+  ---
+  duration_ms: 1.0209
+  type: 'test'
+  ...
+# Subtest: sorts official updates strictly by publication date descending first
+ok 45 - sorts official updates strictly by publication date descending first
+  ---
+  duration_ms: 0.6955
+  type: 'test'
+  ...
+# Subtest: always shows a full publication year and distinguishes previous admission cycles
+not ok 46 - always shows a full publication year and distinguishes previous admission cycles
+  ---
+  duration_ms: 3.4686
+  type: 'test'
+  location: 'D:\\DefaultQuickAccessFiles\\Desktop\\hainanu-2027-kaoyan-guide\\tests\\app.test.cjs:1161:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly deep-equal:
+    + actual - expected
+    
+      [
+    +   '09.20',
+    -   '2026.09.20',
+        '2025.09.30'
+      ]
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+    0: '2026.09.20'
+    1: '2025.09.30'
+  actual:
+    0: '09.20'
+    1: '2025.09.30'
+  operator: 'deepStrictEqual'
+  stack: |-
+    D:\DefaultQuickAccessFiles\Desktop\hainanu-2027-kaoyan-guide\tests\app.test.cjs:1169:12
+    async withFakePage (D:\DefaultQuickAccessFiles\Desktop\hainanu-2027-kaoyan-guide\tests\app.test.cjs:322:5)
+    async TestContext.<anonymous> (D:\DefaultQuickAccessFiles\Desktop\hainanu-2027-kaoyan-guide\tests\app.test.cjs:1166:3)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: reads publication metadata instead of dates in the notice body
+not ok 47 - reads publication metadata instead of dates in the notice body
+  ---
+  duration_ms: 0.5343
+  type: 'test'
+  location: 'D:\\DefaultQuickAccessFiles\\Desktop\\hainanu-2027-kaoyan-guide\\tests\\notice-dates.test.cjs:9:1'
+  failureType: 'testCodeFailure'
+  error: 'parseOfficialPublicationDate is not a function'
+  code: 'ERR_TEST_FAILURE'
+  name: 'TypeError'
+  stack: |-
+    TestContext.<anonymous> (D:\DefaultQuickAccessFiles\Desktop\hainanu-2027-kaoyan-guide\tests\notice-dates.test.cjs:10:16)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.start (node:internal/test_runner/test:944:17)
+    startSubtestAfterBootstrap (node:internal/test_runner/harness:296:17)
+  ...
+# Subtest: verifies yearless homepage dates against the article even after the anniversary
+not ok 48 - verifies yearless homepage dates against the article even after the anniversary
+  ---
+  duration_ms: 31.0498
+  type: 'test'
+  location: 'D:\\DefaultQuickAccessFiles\\Desktop\\hainanu-2027-kaoyan-guide\\tests\\notice-dates.test.cjs:15:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+    
+    + '2026-09-30'
+    - '2025-09-30'
+          ^
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: '2025-09-30'
+  actual: '2026-09-30'
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (D:\DefaultQuickAccessFiles\Desktop\hainanu-2027-kaoyan-guide\tests\notice-dates.test.cjs:24:10)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: never publishes a guessed year if the article has no verifiable publication date
+not ok 49 - never publishes a guessed year if the article has no verifiable publication date
+  ---
+  duration_ms: 1.182
+  type: 'test'
+  location: 'D:\\DefaultQuickAccessFiles\\Desktop\\hainanu-2027-kaoyan-guide\\tests\\notice-dates.test.cjs:28:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    true !== false
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: false
+  actual: true
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (D:\DefaultQuickAccessFiles\Desktop\hainanu-2027-kaoyan-guide\tests\notice-dates.test.cjs:36:10)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: newly discovered older notices do not jump ahead of recent cached notices
+not ok 50 - newly discovered older notices do not jump ahead of recent cached notices
+  ---
+  duration_ms: 4.0587
+  type: 'test'
+  location: 'D:\\DefaultQuickAccessFiles\\Desktop\\hainanu-2027-kaoyan-guide\\tests\\notice-dates.test.cjs:40:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly deep-equal:
+    + actual - expected
+    
+      [
+    +   '2025-09-30',
+        '2026-09-20',
+    -   '2025-09-30'
+      ]
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+    0: '2026-09-20'
+    1: '2025-09-30'
+  actual:
+    0: '2025-09-30'
+    1: '2026-09-20'
+  operator: 'deepStrictEqual'
+  stack: |-
+    TestContext.<anonymous> (D:\DefaultQuickAccessFiles\Desktop\hainanu-2027-kaoyan-guide\tests\notice-dates.test.cjs:48:10)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+1..50
+# tests 50
+# suites 0
+# pass 45
+# fail 5
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 224.4904

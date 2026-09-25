@@ -301,6 +301,12 @@
         isImportant: orderedMembers.some((member) => member.isImportant),
         isNew: memberIds.some((id) => newIdSet.has(id) && !acknowledgedIdSet.has(id))
       };
+    }).sort((a, b) => {
+      const dateOrder = String(b.date || '').localeCompare(String(a.date || ''), 'zh-CN');
+      if (dateOrder !== 0) return dateOrder;
+      if (Boolean(a.isTarget2027) !== Boolean(b.isTarget2027)) return a.isTarget2027 ? -1 : 1;
+      if (Boolean(a.isImportant) !== Boolean(b.isImportant)) return a.isImportant ? -1 : 1;
+      return String(a.title || '').localeCompare(String(b.title || ''), 'zh-CN');
     });
   }
 
@@ -375,6 +381,11 @@
     const newCount = document.querySelector('#live-new-count');
     const sourceHealth = document.querySelector('#live-source-health');
     const updatesList = document.querySelector('#official-updates-list');
+    const previousPageButton = document.querySelector('#updates-previous');
+    const nextPageButton = document.querySelector('#updates-next');
+    const pageStatus = document.querySelector('#updates-page-status');
+    let updatesPage = 1;
+    let updatesPageCount = 1;
     const updateFilterButtons = Array.from(document.querySelectorAll('[data-updates-filter]'));
     const acknowledgeUpdatesButton = document.querySelector('#acknowledge-official-updates');
     let hasRenderedSnapshot = false;
@@ -428,7 +439,18 @@
       const updateLimit = /^[1-9]\d*$/.test(updatesList.dataset.updateLimit || '')
         ? Number(updatesList.dataset.updateLimit)
         : null;
-      const renderedUpdates = updateLimit ? selection.updates.slice(0, updateLimit) : selection.updates;
+      const pageSize = /^[1-9]\d*$/.test(updatesList.dataset.updatePageSize || '')
+        ? Number(updatesList.dataset.updatePageSize)
+        : null;
+      updatesPageCount = pageSize ? Math.max(1, Math.ceil(selection.updates.length / pageSize)) : 1;
+      updatesPage = Math.min(updatesPage, updatesPageCount);
+      const pageStart = pageSize ? (updatesPage - 1) * pageSize : 0;
+      const renderedUpdates = pageSize
+        ? selection.updates.slice(pageStart, pageStart + pageSize)
+        : updateLimit ? selection.updates.slice(0, updateLimit) : selection.updates;
+      if (previousPageButton) previousPageButton.disabled = updatesPage <= 1;
+      if (nextPageButton) nextPageButton.disabled = updatesPage >= updatesPageCount;
+      if (pageStatus) pageStatus.textContent = `第 ${updatesPage} / ${updatesPageCount} 页 · 共 ${selection.updates.length} 条`;
       const renderedNewIds = selection.newIds.filter((id) => renderedUpdates.some((update) => update.id === id));
       const listRenderKey = createUpdatesSnapshotKey({
         updateView,
@@ -442,10 +464,10 @@
       if (!renderedUpdates.length) {
         const empty = createTextElement('li', 'official-update-empty');
         empty.append(
-          createTextElement('strong', '', updateView === 'new' ? '暂时没有未读新公告' : '暂未读到相关通知'),
+          createTextElement('strong', '', updateView === 'new' ? '暂时没有未读通知' : '暂未读到相关通知'),
           createTextElement('span', '', updateView === 'new'
-            ? '确认已读后，新公告会从此处移除；可切换到“全部”查看完整列表。'
-            : '这不等于学校没有公告；可稍后手动同步或直接查看下方官方信源。')
+            ? '全部标为已读后，新收录通知会从此处移除；可切换到“全部”查看完整列表。'
+            : '这不等于学校没有公告；可稍后手动同步或前往官方信源页查看。')
         );
         updatesList.append(empty);
         return;
@@ -459,13 +481,21 @@
         link.target = '_blank';
         link.rel = 'noopener noreferrer';
 
-        const date = createTextElement('time', 'official-update-date', update.date.slice(5).replace('-', '.'));
+        const dateLabel = update.date.replace(/-/g, '.');
+        const date = createTextElement('time', 'official-update-date', dateLabel);
         date.dateTime = update.date;
+        date.setAttribute('aria-label', `发布日期：${update.date}`);
         const copy = createTextElement('div', 'official-update-copy');
         const meta = createTextElement('div', 'official-update-meta');
         meta.append(createTextElement('span', 'official-update-category', update.category));
-        if (selectedNewIds.has(update.id)) meta.append(createTextElement('span', 'official-update-new', '新公告'));
-        if (update.isTarget2027) meta.append(createTextElement('span', 'official-update-target', '2027 重点'));
+        if (selectedNewIds.has(update.id)) meta.append(createTextElement('span', 'official-update-new', '新收录'));
+        const admissionYears = [...new Set(update.title.match(/20\d{2}(?=\s*(?:年|级))/g) || [])];
+        const previousCycle = admissionYears.length > 0 && admissionYears.every((year) => Number(year) < 2027);
+        const cycleLabel = admissionYears.length
+          ? `${admissionYears.join(' / ')} 招生${previousCycle ? ' · 往年参考' : ''}`
+          : Number(update.date.slice(0, 4)) < 2026 ? '往年发布 · 招生年份未注明' : '招生年份未注明';
+        meta.append(createTextElement('span', previousCycle ? 'official-update-history' : 'official-update-target', cycleLabel));
+        if (update.isImportant) meta.append(createTextElement('span', 'official-update-important', '重要'));
         copy.append(
           meta,
           createTextElement('h3', '', update.title),
@@ -486,6 +516,7 @@
       const unseenUpdates = getUnseenUpdates(payload.updates, unseenBaselineAt);
       const unseenIds = new Set(unseenUpdates.map((update) => update.id));
       const displayUpdates = aggregateUpdatesForDisplay(payload.updates, unseenIds, acknowledgedUpdateIds);
+      const wasFirstRender = !hasRenderedSnapshot;
       latestPayload = payload;
       hasRenderedSnapshot = true;
       consoleElement.dataset.state = payload.status;
@@ -531,13 +562,25 @@
       if (newCount) {
         const unacknowledgedCount = displayUpdates.filter((update) => update.isNew).length;
         newCount.hidden = unacknowledgedCount === 0;
-        newCount.textContent = unacknowledgedCount ? `${unacknowledgedCount} 条新公告` : '';
+        newCount.textContent = unacknowledgedCount ? `${unacknowledgedCount} 条新收录` : '';
       }
       renderSources(payload.sources, payload.refreshIntervalMs);
       renderUpdates(payload.updates, unseenIds);
+      if (wasFirstRender && payload.freshness.isOverdue && !requestInFlight) {
+        window.setTimeout(() => loadUpdates(true), 500);
+      }
     }
 
     function renderDisconnected(message) {
+      if (hasRenderedSnapshot) {
+        consoleElement.dataset.state = 'offline';
+        if (statusTitle) statusTitle.textContent = '本次同步失败 · 显示最近数据';
+        if (statusDetail) statusDetail.textContent = message;
+        if (freshness) freshness.textContent = '连接中断 · 新鲜度未验证';
+        if (sourceCount) sourceCount.textContent = '连接中断 · 待验证';
+        if (nextRefresh) nextRefresh.textContent = '恢复连接后自动重试';
+        return;
+      }
       consoleElement.dataset.state = 'offline';
       if (statusTitle) statusTitle.textContent = '自动更新未连接';
       if (statusDetail) statusDetail.textContent = message;
@@ -589,12 +632,22 @@
           cache: 'no-store',
           signal: controller.signal
         });
+        if (response.status === 429) {
+          if (!hasRenderedSnapshot || consoleElement.dataset.state === 'offline') {
+            consoleElement.dataset.state = hasRenderedSnapshot ? 'stale' : 'seed';
+            if (statusTitle) statusTitle.textContent = '服务已连接 · 等待再次同步';
+          }
+          if (statusDetail) statusDetail.textContent = '同步请求过于频繁，请稍后再试；当前通知已保留。';
+          return;
+        }
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         renderSnapshot(await response.json());
       } catch {
-        renderDisconnected(hasRenderedSnapshot
-          ? '本次同步失败，已保留当前页面中的最近数据。'
-          : '请运行 start-guide.cmd 或 npm start，再通过 http://127.0.0.1:4173 打开本页。');
+        if (document.visibilityState !== 'hidden') {
+          renderDisconnected(hasRenderedSnapshot
+            ? '本次同步失败，已保留当前页面中的最近数据。'
+            : '请运行 start-guide.cmd 或 npm start，再通过 http://127.0.0.1:4173 打开本页。');
+        }
       } finally {
         window.clearTimeout(timeout);
         if (activeRequestController === controller) activeRequestController = null;
@@ -614,16 +667,27 @@
     }
 
     refreshButton.addEventListener('click', () => loadUpdates(true));
+    function renderCurrentUpdates() {
+      if (!latestPayload) return;
+      const unseenIds = new Set(getUnseenUpdates(latestPayload.updates, unseenBaselineAt).map((update) => update.id));
+      renderUpdates(latestPayload.updates, unseenIds);
+    }
+    function changeUpdatesPage(offset) {
+      if (!latestPayload) return;
+      updatesPage = Math.max(1, Math.min(updatesPageCount, updatesPage + offset));
+      renderCurrentUpdates();
+      updatesList?.focus();
+    }
+    previousPageButton?.addEventListener('click', () => changeUpdatesPage(-1));
+    nextPageButton?.addEventListener('click', () => changeUpdatesPage(1));
     updateFilterButtons.forEach((button) => {
       button.addEventListener('click', () => {
         updateView = button.dataset.updatesFilter === 'new' ? 'new' : 'all';
+        updatesPage = 1;
         updateFilterButtons.forEach((candidate) => {
           candidate.setAttribute('aria-pressed', String(candidate === button));
         });
-        if (latestPayload) {
-          const unseenIds = new Set(getUnseenUpdates(latestPayload.updates, unseenBaselineAt).map((update) => update.id));
-          renderUpdates(latestPayload.updates, unseenIds);
-        }
+        renderCurrentUpdates();
       });
     });
     acknowledgeUpdatesButton?.addEventListener('click', () => {
@@ -663,6 +727,15 @@
       resumePending = false;
       loadUpdates(false);
     });
+    if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+      window.addEventListener('storage', (event) => {
+        if (event.key === LAST_SEEN_UPDATES_KEY && latestPayload) {
+          unseenBaselineAt = event.newValue || null;
+          renderedUpdatesKey = null;
+          renderSnapshot(latestPayload);
+        }
+      });
+    }
     loadUpdates(false);
   }
 
@@ -686,10 +759,28 @@
     });
   }
 
+  function getLegacyPageDestination(pathname, hash) {
+    const page = (pathname || '').split('/').pop().replace(/\.html$/, '');
+    const destinations = {
+      'programs#scores': 'scores.html#scores',
+      'programs#exam': 'preparation.html#exam',
+      'programs#risks': 'preparation.html#risks',
+      'application#materials': 'materials.html#materials',
+      'updates#sources': 'sources.html#sources'
+    };
+    return destinations[`${page}${hash}`] || null;
+  }
+
   function initPage() {
+    const legacyDestination = getLegacyPageDestination(window.location.pathname, window.location.hash);
+    if (legacyDestination) {
+      window.location.replace(legacyDestination);
+      return;
+    }
     initSiteNavigation();
+    const todayString = getLocalDateString(new Date());
     const timelineElements = Array.from(document.querySelectorAll('[data-milestone-id]'));
-    const state = getTimelineState(milestones, getLocalDateString(new Date()));
+    const state = getTimelineState(milestones, todayString);
     const activeMilestones = state.activeIds
       .map((id) => milestones.find((milestone) => milestone.id === id))
       .filter(Boolean);
@@ -778,6 +869,18 @@
     checkboxes.forEach((checkbox) => checkbox.addEventListener('change', () => persistChecks()));
     renderProgress();
 
+    if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+      window.addEventListener('storage', (event) => {
+        if (event.key === STORAGE_KEY && progressStorage) {
+          checklistState = safeReadChecks(progressStorage, STORAGE_KEY, CHECKLIST_IDS);
+          checkboxes.forEach((checkbox) => {
+            checkbox.checked = checklistState[checkbox.dataset.checkId] === true;
+          });
+          renderProgress();
+        }
+      });
+    }
+
     const resetButton = document.querySelector('#reset-progress');
     resetButton?.addEventListener('click', () => {
       const resetAll = resetButton.dataset.resetScope === 'all';
@@ -804,7 +907,14 @@
       button.addEventListener('click', () => {
         const category = button.dataset.filter;
         const visibleIds = new Set(filterTimeline(categoryItems, category).map((item) => item.id));
-        categoryItems.forEach((item) => { item.element.hidden = !visibleIds.has(item.id); });
+        let lastVisible = null;
+        categoryItems.forEach((item) => {
+          const visible = visibleIds.has(item.id);
+          item.element.hidden = !visible;
+          item.element.classList.remove('is-last-visible');
+          if (visible) lastVisible = item.element;
+        });
+        if (lastVisible) lastVisible.classList.add('is-last-visible');
         filterButtons.forEach((candidate) => {
           candidate.setAttribute('aria-pressed', String(candidate === button));
         });
@@ -846,6 +956,7 @@
       formatSourceHealthTitle,
       createUpdatesSnapshotKey,
       getTimelineState,
+      getLegacyPageDestination,
       getUnseenBaseline,
       getUnseenUpdates,
       isSafeOfficialUpdateUrl,

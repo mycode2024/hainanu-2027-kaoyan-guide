@@ -3,6 +3,8 @@ data/
 
 node_modules/
 coverage/
+artifacts/admissions-2025/
+artifacts/admissions-2026/
 npm-debug.log*
 .worktrees/
 

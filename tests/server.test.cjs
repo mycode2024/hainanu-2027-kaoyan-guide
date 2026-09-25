@@ -80,6 +80,20 @@ function createServiceDouble() {
   };
 }
 
+test('the live backend serves all focused pages and their short aliases', async (t) => {
+  const { createHttpServer } = loadServer();
+  const server = createHttpServer({ siteRoot: path.resolve(__dirname, '..'), updateService: createServiceDouble() });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  for (const page of ['programs', 'scores', 'preparation', 'timeline', 'application', 'materials', 'updates', 'sources']) {
+    for (const suffix of ['', '.html']) {
+      const response = await rawRequest(server.address().port, `/${page}${suffix}`);
+      assert.equal(response.status, 200, `/${page}${suffix}`);
+      assert.match(response.body, new RegExp(`data-page="${page}"`));
+    }
+  }
+});
+
 test('a snapshot read starts an overdue refresh without delaying the response', async (t) => {
   const { createHttpServer } = loadServer();
   let resolveRefresh;
