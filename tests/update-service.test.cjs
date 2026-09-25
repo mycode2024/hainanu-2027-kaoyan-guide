@@ -43,6 +43,31 @@ function createMemoryStore(initial = null) {
   };
 }
 
+test('restoring a cache preserves its due time instead of granting another refresh interval', async (t) => {
+  const { createUpdateService } = loadService();
+  for (const [name, cachedTimes, expectedDue] of [
+    ['expired', { lastAttemptAt: '2026-09-25T03:40:00Z', nextRefreshAt: '2026-09-25T03:50:00Z' }, true],
+    ['recent', { lastAttemptAt: '2026-09-25T03:55:00Z', nextRefreshAt: '2026-09-25T04:05:00Z' }, false],
+    ['legacy', { fetchedAt: '2026-09-25T03:40:00Z' }, true],
+    ['untrusted future deadline', { lastAttemptAt: '2026-09-25T03:40:00Z', nextRefreshAt: '2027-01-01T00:00:00Z' }, true],
+    ['unknown age', {}, true]
+  ]) {
+    await t.test(name, async () => {
+      let requests = 0;
+      const service = createUpdateService({
+        sources: [sources[0]], now: () => new Date('2026-09-25T04:00:00Z'),
+        cacheStore: createMemoryStore({ updates: [], ...cachedTimes }),
+        fetchImpl: async url => { requests++; return makeResponse(url, htmlByHost[new URL(url).hostname]); }
+      });
+      await service.initialize();
+      const result = service.refreshIfDue();
+      assert.equal(result.started, expectedDue);
+      await result.promise;
+      assert.equal(requests, expectedDue ? 1 : 0);
+    });
+  }
+});
+
 test('a successful refresh combines both sources and persists a fresh snapshot', async () => {
   const { createUpdateService } = loadService();
   assert.equal(typeof createUpdateService, 'function', 'createUpdateService must be exported');

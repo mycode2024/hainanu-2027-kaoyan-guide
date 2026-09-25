@@ -16,9 +16,11 @@
   const milestones = [
     { id: 'verify', start: '2026-07-02', end: '2026-09-14', label: '锁定专业基线', action: '按 408 推进一轮复习，等待 2027 正式目录' },
     { id: 'directory', start: '2026-09-15', end: '2026-09-30', label: '招生章程与目录观察窗', action: '逐字段核对专业、院系、科目、备注与计划' },
-    { id: 'preapply', start: '2026-10-10', end: '2026-10-13', label: '网上预报名', action: '完成一次全流程填报并下载报名信息表' },
-    { id: 'apply', start: '2026-10-16', end: '2026-10-27', label: '全国网上报名', action: '确认唯一有效报名信息并完成缴费' },
-    { id: 'confirm', start: '2026-10-28', end: '2026-11-15', label: '网上确认', action: '上传材料并看到审核通过结果' },
+    { id: 'preapply', start: '2026-10-09', end: '2026-10-12', label: '网上预报名', action: '每日 9:00—22:00；按所在省安排填报并提交核验材料' },
+    { id: 'apply', start: '2026-10-15', end: '2026-10-24', label: '全国网上报名', action: '每日 9:00—22:00；填写信息、一并提交核验材料并完成缴费' },
+    // The 2027 process combines registration and confirmation. Local review and
+    // supplementary-material deadlines are not a separate national date range.
+    { id: 'confirm', start: null, end: null, label: '材料核验与补交', action: '报名时提交材料，补交时限按省级机构和报考点公告执行' },
     { id: 'ticket', start: '2026-12-10', end: '2026-12-18', label: '下载准考证', action: '打印多份并完成考点路线踩点' },
     { id: 'exam', start: '2026-12-19', end: '2026-12-20', label: '全国硕士研究生初试', action: '按准考证时间参加政治、英语、数学与 408' },
     { id: 'score', start: '2027-02-20', end: '2027-02-28', label: '初试成绩查询', action: '查分、保存成绩单并决定复试/调剂策略' },

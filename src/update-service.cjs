@@ -148,6 +148,16 @@ function sanitizeCachedSnapshot(value, sources, refreshIntervalMs, date) {
       .map((source) => [source.id, source])
   );
 
+  // Restoring a cache must not reset its age. Bound legacy or corrupt deadlines
+  // by the configured interval after the last known attempt, not startup time.
+  const lastCheckedAt = [value.lastAttemptAt, value.fetchedAt, cacheSuccessTime].find(isValidIsoDate);
+  const nowMs = Date.parse(seed.fetchedAt);
+  const lastCheckedMs = Date.parse(lastCheckedAt);
+  const inferredDeadline = Number.isFinite(lastCheckedMs) && lastCheckedMs <= nowMs
+    ? lastCheckedMs + refreshIntervalMs : nowMs;
+  const nextRefreshAt = new Date(Math.min(inferredDeadline,
+    isValidIsoDate(value.nextRefreshAt) ? Date.parse(value.nextRefreshAt) : inferredDeadline)).toISOString();
+
   return {
     ...seed,
     status: updates.length ? 'stale' : 'seed',
@@ -156,6 +166,7 @@ function sanitizeCachedSnapshot(value, sources, refreshIntervalMs, date) {
     lastAnySuccessAt: cacheSuccessTime,
     lastAllSuccessAt: isValidIsoDate(value.lastAllSuccessAt) ? value.lastAllSuccessAt : null,
     lastSuccessAt: cacheSuccessTime,
+    nextRefreshAt,
     sources: seed.sources.map((source) => {
       const cached = cachedSourceById.get(source.id);
       const diagnostics = sanitizeParserDiagnostics(cached?.diagnostics);

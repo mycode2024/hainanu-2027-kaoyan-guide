@@ -449,6 +449,24 @@ test('returns every overlapping active milestone in chronological order', () => 
   });
 });
 
+test('home countdown follows the published 2027 registration dates', async () => {
+  for (const [today, active, next, days] of [
+    ['2026-10-08', '等待下一节点', '网上预报名', '1 天'],
+    ['2026-10-09', '网上预报名', '全国网上报名', '6 天'],
+    ['2026-10-12', '网上预报名', '全国网上报名', '3 天'],
+    ['2026-10-13', '等待下一节点', '全国网上报名', '2 天'],
+    ['2026-10-15', '全国网上报名', '下载准考证', '56 天'],
+    ['2026-10-24', '全国网上报名', '下载准考证', '47 天'],
+    ['2026-10-28', '等待下一节点', '下载准考证', '43 天']
+  ]) {
+    await withFakePage({ today, includeLiveConsole: false }, ({ elements }) => {
+      assert.equal(elements.stageName.textContent, active, today);
+      assert.equal(elements.nextName.textContent, next, today);
+      assert.equal(elements.nextDays.textContent, days, today);
+    });
+  }
+});
+
 test('treats both milestone boundary dates as active', () => {
   const { getTimelineState } = loadApp();
   assert.equal(typeof getTimelineState, 'function', 'getTimelineState must be exported');
