@@ -10,6 +10,24 @@
 
 ## 最简单的启动方式
 
+### 发布到 Vercel
+
+项目提供独立的云函数入口 `api/index.js`，导出请求处理函数；本地仍使用 `server.cjs` 启动。不要将浏览器脚本 `app.js` 或导出启动工具的 `server.cjs` 指定为 Vercel 函数入口，否则可能出现 `Invalid export` / `FUNCTION_INVOCATION_FAILED`。
+
+1. 把本次改动连同 `api/`、`src/vercel-app.cjs`、`scripts/build-vercel.cjs`、`vercel.json` 和 `.vercelignore` 提交到已连接的 GitHub 仓库。
+2. Vercel 项目的 Root Directory 选本项目根目录，Framework Preset 选 **Other**。构建命令为 `npm run build:vercel`，Output Directory 为 `public`（仓库的 `vercel.json` 已声明）。移除以前手动设置的错误入口或路由。
+3. 部署最新提交。九个 HTML 页面及 CSS、浏览器脚本发布到静态目录；`/api/health`、`/api/updates`、`/api/refresh` 路由到同一个 Node.js 函数。项目内部文件不发布到静态目录。
+4. 默认 Vercel 部署域名、分支预览域名均由系统环境变量 `VERCEL_URL`、`VERCEL_BRANCH_URL` 与 `VERCEL_PROJECT_PRODUCTION_URL` 识别。使用自定义域名时，另配置 `SITE_URL=https://你的域名` 后重新部署。系统环境变量需要在项目设置中启用自动暴露；`SITE_URL` 只填站点来源，不含路径、查询参数或账号密码。
+5. 验证首页、专业页和 `/api/health`；后者应返回 `live: true`。`ready: false` 表示官网数据尚未成功获取，不表示静态网页不可用。打开官方动态，再测试“立即同步”。
+
+**当前云端行为与限制：** 首次访问通知接口会等待抓取；后续访问在数据到期（默认 10 分钟）时再次抓取，页面打开期间每分钟检查。手动同步也会触发抓取。没有常驻计时器，无人访问时不会持续抓取。海外节点能否访问各官网仍以实际部署验证为准。
+
+缓存放在实例的临时目录 `/tmp`，不写只读的部署目录。它仅用于同一实例的尽力缓存，实例回收、扩容或重新部署后可能丢失或出现不同副本；10 秒手动同步冷却也仅在单实例内有效。此版本未接入持久化云数据库或定时调度，不承诺跨实例长期保留公告及持续定时抓取。清单进度仍保存在访问者自己的浏览器里。
+
+本地可运行 `npm run build:vercel` 检查发布产物，运行 `npm run check` 检查全部回归测试。`public/` 是自动生成的发布目录，无需提交。
+
+### 本地运行
+
 1. 电脑需安装 Node.js 18 或更高版本。
 2. 双击桌面的 `海南大学2027考研导航.cmd`，或项目内的 `start-guide.cmd`。
 3. 浏览器会自动打开 `http://127.0.0.1:4173`。

@@ -58,6 +58,15 @@ function writeJson(response, status, value, extraHeaders = {}) {
 }
 
 function consumeSmallBody(request, maximumBytes = 1024) {
+  // Platforms may have consumed the request stream before invoking the handler.
+  if (request.readableEnded) {
+    const body = request.body;
+    const size = body == null ? 0 : Buffer.byteLength(typeof body === 'string' || Buffer.isBuffer(body) ? body : JSON.stringify(body));
+    if (size > maximumBytes || Number(request.headers['content-length']) > maximumBytes) {
+      return Promise.reject(Object.assign(new Error('request body too large'), { code: 'BODY_TOO_LARGE' }));
+    }
+    return Promise.resolve();
+  }
   return new Promise((resolve, reject) => {
     let total = 0;
     let exceeded = false;
@@ -77,10 +86,17 @@ function consumeSmallBody(request, maximumBytes = 1024) {
   });
 }
 
-function isTrustedRefreshRequest(request) {
+function isTrustedRefreshRequest(request, trustedOrigins = null) {
   if (request.headers['x-hnu-guide-request'] !== '1') return false;
   const fetchSite = request.headers['sec-fetch-site'];
   if (fetchSite === 'cross-site') return false;
+  if (trustedOrigins !== null) {
+    const origin = request.headers.origin;
+    return trustedOrigins.some((allowed) => {
+      const url = new URL(allowed);
+      return origin === allowed && request.headers.host === url.host;
+    });
+  }
   const localPort = Number(request.socket?.localPort);
   if (!Number.isInteger(localPort) || localPort < 1 || localPort > 65_535) return false;
   const allowedHosts = [`127.0.0.1:${localPort}`, `localhost:${localPort}`];
@@ -96,10 +112,12 @@ function isTrustedRefreshRequest(request) {
   }
 }
 
-function createHttpServer({
+function createRequestHandler({
   siteRoot,
   updateService,
   manualRefreshCooldownMs = 10_000,
+  trustedOrigins = null,
+  awaitDueRefresh = false,
   now = () => Date.now()
 }) {
   if (!updateService || typeof updateService.getSnapshot !== 'function' || typeof updateService.refresh !== 'function') {
@@ -110,7 +128,7 @@ function createHttpServer({
   const cooldownMs = Math.min(60_000, Math.max(0, Number(manualRefreshCooldownMs) || 0));
   let lastManualRefreshAt = Number.NEGATIVE_INFINITY;
 
-  return http.createServer(async (request, response) => {
+  return async (request, response) => {
     const rawUrl = request.url || '/';
     if (/%2e/i.test(rawUrl)) {
       writeText(response, 403, 'Forbidden');
@@ -166,8 +184,12 @@ function createHttpServer({
       }
       if (request.method === 'GET' && typeof updateService.refreshIfDue === 'function') {
         try {
-          const dueRefresh = updateService.refreshIfDue();
-          dueRefresh?.promise?.catch?.(() => {});
+          const current = updateService.getSnapshot();
+          const dueRefresh = awaitDueRefresh && current.status === 'seed' && !current.lastAttemptAt
+            ? { promise: updateService.refresh() }
+            : updateService.refreshIfDue();
+          if (awaitDueRefresh) await dueRefresh?.promise;
+          else dueRefresh?.promise?.catch?.(() => {});
         } catch {
           // A background refresh must never make the last good snapshot unavailable.
         }
@@ -191,7 +213,7 @@ function createHttpServer({
         writeJson(response, 405, { error: 'Method not allowed' }, { allow: 'POST' });
         return;
       }
-      if (!isTrustedRefreshRequest(request)) {
+      if (!isTrustedRefreshRequest(request, trustedOrigins)) {
         request.resume();
         writeJson(response, 403, { error: 'Refresh request rejected' });
         return;
@@ -258,7 +280,11 @@ function createHttpServer({
     } catch {
       writeText(response, 404, 'Not found');
     }
-  });
+  };
 }
 
-module.exports = { createHttpServer };
+function createHttpServer(options) {
+  return http.createServer(createRequestHandler(options));
+}
+
+module.exports = { createHttpServer, createRequestHandler };

@@ -1,0 +1,53 @@
+TAP version 13
+# Subtest: Vercel entry exports a callable handler without starting a listener
+ok 1 - Vercel entry exports a callable handler without starting a listener
+  ---
+  duration_ms: 8.4815
+  type: 'test'
+  ...
+# Subtest: cloud GET waits for due refresh and cloud POST accepts only configured HTTPS origins
+ok 2 - cloud GET waits for due refresh and cloud POST accepts only configured HTTPS origins
+  ---
+  duration_ms: 54.275
+  type: 'test'
+  ...
+# Subtest: a platform-consumed request body completes normally and still enforces the size limit
+ok 3 - a platform-consumed request body completes normally and still enforces the size limit
+  ---
+  duration_ms: 5.9301
+  type: 'test'
+  ...
+# Vercel request failed: temporary failure
+# Subtest: cloud initialization failure returns JSON and can recover on a later invocation
+ok 4 - cloud initialization failure returns JSON and can recover on a later invocation
+  ---
+  duration_ms: 5.3913
+  type: 'test'
+  ...
+# Subtest: first cloud visit fetches notices even though a new seed has a future refresh deadline
+ok 5 - first cloud visit fetches notices even though a new seed has a future refresh deadline
+  ---
+  duration_ms: 4.0045
+  type: 'test'
+  ...
+# Subtest: cloud cache stays outside the read-only deployment directory
+ok 6 - cloud cache stays outside the read-only deployment directory
+  ---
+  duration_ms: 0.4412
+  type: 'test'
+  ...
+# Subtest: Vercel static build publishes only website files with truthful cloud copy
+ok 7 - Vercel static build publishes only website files with truthful cloud copy
+  ---
+  duration_ms: 73.7494
+  type: 'test'
+  ...
+1..7
+# tests 7
+# suites 0
+# pass 7
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 222.5381

@@ -1,0 +1,1139 @@
+
+> hainanu-2027-kaoyan-guide@1.1.0 check
+> node --check server.cjs && node --check app.js && node --check src/http-app.cjs && node --check src/official-scraper.cjs && node --check src/update-service.cjs && node --check api/index.js && node --check src/vercel-app.cjs && node --check scripts/build-vercel.cjs && npm test
+
+
+> hainanu-2027-kaoyan-guide@1.1.0 test
+> node --test tests/admissions-statistics.test.cjs tests/app.test.cjs tests/notice-dates.test.cjs tests/official-scraper.test.cjs tests/server.test.cjs tests/smoke.test.cjs tests/styles.test.cjs tests/update-service.test.cjs tests/vercel.test.cjs
+
+TAP version 13
+# Subtest: latest intake is the December 2025 exam and keeps 2026 ordinary and special plans separate
+ok 1 - latest intake is the December 2025 exam and keeps 2026 ordinary and special plans separate
+  ---
+  duration_ms: 3.4053
+  type: 'test'
+  ...
+# Subtest: published score section clearly pairs the December 2025 exam with the 2026 intake
+ok 2 - published score section clearly pairs the December 2025 exam with the 2026 intake
+  ---
+  duration_ms: 1.0144
+  type: 'test'
+  ...
+# Subtest: separates special plans and part-time candidates from full-time ordinary scores
+ok 3 - separates special plans and part-time candidates from full-time ordinary scores
+  ---
+  duration_ms: 0.7991
+  type: 'test'
+  ...
+# Subtest: computes means, even and odd medians, and inclusive score-band boundaries
+ok 4 - computes means, even and odd medians, and inclusive score-band boundaries
+  ---
+  duration_ms: 0.4047
+  type: 'test'
+  ...
+# Subtest: every extracted row has a unique source reference and score bands reconcile
+ok 5 - every extracted row has a unique source reference and score bands reconcile
+  ---
+  duration_ms: 1.6049
+  type: 'test'
+  ...
+# Subtest: rejects duplicate rows and invalid scores instead of silently biasing statistics
+ok 6 - rejects duplicate rows and invalid scores instead of silently biasing statistics
+  ---
+  duration_ms: 0.8787
+  type: 'test'
+  ...
+# Subtest: renders current stage from shared milestone data without timeline DOM
+ok 7 - renders current stage from shared milestone data without timeline DOM
+  ---
+  duration_ms: 8.2181
+  type: 'test'
+  ...
+# Subtest: limits the compact homepage feed without truncating the full payload
+ok 8 - limits the compact homepage feed without truncating the full payload
+  ---
+  duration_ms: 29.1726
+  type: 'test'
+  ...
+# Subtest: opens the mobile site navigation and closes it on Escape
+ok 9 - opens the mobile site navigation and closes it on Escape
+  ---
+  duration_ms: 3.1372
+  type: 'test'
+  ...
+# Subtest: marks the intersecting page-toc hash link as the current location and clears the prior link
+ok 10 - marks the intersecting page-toc hash link as the current location and clears the prior link
+  ---
+  duration_ms: 3.6183
+  type: 'test'
+  ...
+# Subtest: resets all registered checklist state only when the reset scope is all
+ok 11 - resets all registered checklist state only when the reset scope is all
+  ---
+  duration_ms: 1.9945
+  type: 'test'
+  ...
+# Subtest: selects the active milestone and the next future milestone
+ok 12 - selects the active milestone and the next future milestone
+  ---
+  duration_ms: 0.9565
+  type: 'test'
+  ...
+# Subtest: returns every overlapping active milestone in chronological order
+ok 13 - returns every overlapping active milestone in chronological order
+  ---
+  duration_ms: 0.9464
+  type: 'test'
+  ...
+# Subtest: treats both milestone boundary dates as active
+ok 14 - treats both milestone boundary dates as active
+  ---
+  duration_ms: 0.8867
+  type: 'test'
+  ...
+# Subtest: returns null next values after the final milestone
+ok 15 - returns null next values after the final milestone
+  ---
+  duration_ms: 1.0911
+  type: 'test'
+  ...
+# Subtest: returns a rounded and bounded progress percentage
+ok 16 - returns a rounded and bounded progress percentage
+  ---
+  duration_ms: 0.9547
+  type: 'test'
+  ...
+# Subtest: merges current-page checks without deleting other registered page state
+ok 17 - merges current-page checks without deleting other registered page state
+  ---
+  duration_ms: 0.6627
+  type: 'test'
+  ...
+# Subtest: counts global checklist progress against all 21 registered tasks
+ok 18 - counts global checklist progress against all 21 registered tasks
+  ---
+  duration_ms: 0.5315
+  type: 'test'
+  ...
+# Subtest: filters timeline items without mutating their order
+ok 19 - filters timeline items without mutating their order
+  ---
+  duration_ms: 0.593
+  type: 'test'
+  ...
+# Subtest: reads a stored checklist object and rejects malformed shapes
+ok 20 - reads a stored checklist object and rejects malformed shapes
+  ---
+  duration_ms: 0.589
+  type: 'test'
+  ...
+# Subtest: accepts only HTTPS notice links on configured university and CHSI official domains
+ok 21 - accepts only HTTPS notice links on configured university and CHSI official domains
+  ---
+  duration_ms: 0.4704
+  type: 'test'
+  ...
+# Subtest: normalizes the updates API and drops malformed or non-official records
+ok 22 - normalizes the updates API and drops malformed or non-official records
+  ---
+  duration_ms: 1.8917
+  type: 'test'
+  ...
+# Subtest: normalizes v2 freshness, discovery and national policy fields
+ok 23 - normalizes v2 freshness, discovery and national policy fields
+  ---
+  duration_ms: 0.8134
+  type: 'test'
+  ...
+# Subtest: preserves the complete v2 freshness, clocks and update-change contract safely
+ok 24 - preserves the complete v2 freshness, clocks and update-change contract safely
+  ---
+  duration_ms: 0.8907
+  type: 'test'
+  ...
+# Subtest: finds only notices discovered after the last page visit
+ok 25 - finds only notices discovered after the last page visit
+  ---
+  duration_ms: 0.6932
+  type: 'test'
+  ...
+# Subtest: keeps the visit baseline fixed so new badges do not disappear on the next poll
+ok 26 - keeps the visit baseline fixed so new badges do not disappear on the next poll
+  ---
+  duration_ms: 0.4604
+  type: 'test'
+  ...
+# Subtest: uses a stable snapshot key for identical render data
+ok 27 - uses a stable snapshot key for identical render data
+  ---
+  duration_ms: 0.5259
+  type: 'test'
+  ...
+# Subtest: keeps new notices selected until explicit acknowledgement
+ok 28 - keeps new notices selected until explicit acknowledgement
+  ---
+  duration_ms: 0.5668
+  type: 'test'
+  ...
+# Subtest: aggregates display notices by normalized URL without changing member identities
+ok 29 - aggregates display notices by normalized URL without changing member identities
+  ---
+  duration_ms: 0.6395
+  type: 'test'
+  ...
+# Subtest: ignores URL fragments when aggregating one notice across official sources
+ok 30 - ignores URL fragments when aggregating one notice across official sources
+  ---
+  duration_ms: 0.6002
+  type: 'test'
+  ...
+# Subtest: source health detail includes the last successful synchronization time
+ok 31 - source health detail includes the last successful synchronization time
+  ---
+  duration_ms: 1.0387
+  type: 'test'
+  ...
+# Subtest: formats freshness using the supplied refresh interval rather than fixed hours
+ok 32 - formats freshness using the supplied refresh interval rather than fixed hours
+  ---
+  duration_ms: 0.5589
+  type: 'test'
+  ...
+# Subtest: formats configured refresh intervals in whole hours or minutes
+ok 33 - formats configured refresh intervals in whole hours or minutes
+  ---
+  duration_ms: 0.4412
+  type: 'test'
+  ...
+# Subtest: renders the live freshness metric with the snapshot refresh interval
+ok 34 - renders the live freshness metric with the snapshot refresh interval
+  ---
+  duration_ms: 1.2804
+  type: 'test'
+  ...
+# Subtest: renders the configured cadence when the next refresh deadline is missing
+ok 35 - renders the configured cadence when the next refresh deadline is missing
+  ---
+  duration_ms: 6.1414
+  type: 'test'
+  ...
+# Subtest: names an overdue source and exposes its degraded freshness in the live console
+ok 36 - names an overdue source and exposes its degraded freshness in the live console
+  ---
+  duration_ms: 1.4107
+  type: 'test'
+  ...
+# Subtest: prioritizes cache-backup recovery over unavailable-source messaging
+ok 37 - prioritizes cache-backup recovery over unavailable-source messaging
+  ---
+  duration_ms: 1.1852
+  type: 'test'
+  ...
+# Subtest: renders one stable aggregated notice with every source name when URLs match
+ok 38 - renders one stable aggregated notice with every source name when URLs match
+  ---
+  duration_ms: 2.604
+  type: 'test'
+  ...
+# Subtest: does not start a second fetch while a refresh is already in flight
+ok 39 - does not start a second fetch while a refresh is already in flight
+  ---
+  duration_ms: 1.2447
+  type: 'test'
+  ...
+# Subtest: aborts an overdue fetch and restores the refresh control after cleanup
+ok 40 - aborts an overdue fetch and restores the refresh control after cleanup
+  ---
+  duration_ms: 2.7906
+  type: 'test'
+  ...
+# Subtest: cloud sync allows cold-start fetching and shows online recovery guidance
+ok 41 - cloud sync allows cold-start fetching and shows online recovery guidance
+  ---
+  duration_ms: 1.779
+  type: 'test'
+  ...
+# Subtest: resumes immediately after hide then show races with aborted request cleanup
+ok 42 - resumes immediately after hide then show races with aborted request cleanup
+  ---
+  duration_ms: 1.9579
+  type: 'test'
+  ...
+# Subtest: shows a disconnected status while preserving notices and recovers on the next successful refresh
+ok 43 - shows a disconnected status while preserving notices and recovers on the next successful refresh
+  ---
+  duration_ms: 3.2727
+  type: 'test'
+  ...
+# Subtest: a refresh cooldown does not falsely mark a reachable service as disconnected
+ok 44 - a refresh cooldown does not falsely mark a reachable service as disconnected
+  ---
+  duration_ms: 2.1322
+  type: 'test'
+  ...
+# Subtest: hiding the page mid-flight does not overwrite the rendered console status
+ok 45 - hiding the page mid-flight does not overwrite the rendered console status
+  ---
+  duration_ms: 1.5621
+  type: 'test'
+  ...
+# Subtest: does not replace the rendered update list for an identical later snapshot
+ok 46 - does not replace the rendered update list for an identical later snapshot
+  ---
+  duration_ms: 4.1424
+  type: 'test'
+  ...
+# Subtest: falls back to visible session-only storage when local storage throws
+ok 47 - falls back to visible session-only storage when local storage throws
+  ---
+  duration_ms: 1.5295
+  type: 'test'
+  ...
+# Subtest: sets printable checked and unchecked task states from live checkbox state
+ok 48 - sets printable checked and unchecked task states from live checkbox state
+  ---
+  duration_ms: 1.4039
+  type: 'test'
+  ...
+# Subtest: keeps checkbox progress and printable state usable when local storage throws
+ok 49 - keeps checkbox progress and printable state usable when local storage throws
+  ---
+  duration_ms: 1.4951
+  type: 'test'
+  ...
+# Subtest: acknowledges new notices in the current session when local storage cannot persist
+ok 50 - acknowledges new notices in the current session when local storage cannot persist
+  ---
+  duration_ms: 3.2022
+  type: 'test'
+  ...
+# Subtest: paginates notices after date sorting and resets filters and shrinking snapshots safely
+ok 51 - paginates notices after date sorting and resets filters and shrinking snapshots safely
+  ---
+  duration_ms: 5.5673
+  type: 'test'
+  ...
+# Subtest: old section bookmarks point to their new pages including file-mode paths
+ok 52 - old section bookmarks point to their new pages including file-mode paths
+  ---
+  duration_ms: 0.6158
+  type: 'test'
+  ...
+# Subtest: every static printable task label starts with an honest unfinished state
+ok 53 - every static printable task label starts with an honest unfinished state
+  ---
+  duration_ms: 1.2294
+  type: 'test'
+  ...
+# Subtest: preserves the actual static review date when the page is opened on a later day
+ok 54 - preserves the actual static review date when the page is opened on a later day
+  ---
+  duration_ms: 0.9168
+  type: 'test'
+  ...
+# Subtest: sorts official updates strictly by publication date descending first
+ok 55 - sorts official updates strictly by publication date descending first
+  ---
+  duration_ms: 0.5732
+  type: 'test'
+  ...
+# Subtest: always shows a full publication year and distinguishes previous admission cycles
+ok 56 - always shows a full publication year and distinguishes previous admission cycles
+  ---
+  duration_ms: 1.4989
+  type: 'test'
+  ...
+# Subtest: includes current recommended-admission rules and retained target-year contact notices
+ok 57 - includes current recommended-admission rules and retained target-year contact notices
+  ---
+  duration_ms: 56.9256
+  type: 'test'
+  ...
+# Subtest: discards legacy homepage years before an offline refresh can carry them forward
+ok 58 - discards legacy homepage years before an offline refresh can carry them forward
+  ---
+  duration_ms: 0.4541
+  type: 'test'
+  ...
+# Subtest: reads publication metadata instead of dates in the notice body
+ok 59 - reads publication metadata instead of dates in the notice body
+  ---
+  duration_ms: 1.3778
+  type: 'test'
+  ...
+# Subtest: verifies yearless homepage dates against the article even after the anniversary
+ok 60 - verifies yearless homepage dates against the article even after the anniversary
+  ---
+  duration_ms: 3.4153
+  type: 'test'
+  ...
+# Subtest: never publishes a guessed year if the article has no verifiable publication date
+ok 61 - never publishes a guessed year if the article has no verifiable publication date
+  ---
+  duration_ms: 2.3355
+  type: 'test'
+  ...
+# Subtest: newly discovered older notices do not jump ahead of recent cached notices
+ok 62 - newly discovered older notices do not jump ahead of recent cached notices
+  ---
+  duration_ms: 4.3863
+  type: 'test'
+  ...
+# Subtest: parses official list variants into safe absolute notice records
+ok 63 - parses official list variants into safe absolute notice records
+  ---
+  duration_ms: 37.859
+  type: 'test'
+  ...
+# Subtest: masks script bodies when an unquoted attribute value ends with a slash
+ok 64 - masks script bodies when an unquoted attribute value ends with a slash
+  ---
+  duration_ms: 1.8581
+  type: 'test'
+  ...
+# Subtest: masks template bodies when an unquoted attribute value ends with a slash
+ok 65 - masks template bodies when an unquoted attribute value ends with a slash
+  ---
+  duration_ms: 1.9019
+  type: 'test'
+  ...
+# Subtest: deduplicates updates and prioritizes target-cycle actionable notices
+ok 66 - deduplicates updates and prioritizes target-cycle actionable notices
+  ---
+  duration_ms: 2.4093
+  type: 'test'
+  ...
+# Subtest: keeps same-title notices with distinct official URLs and favors recency within a cycle
+ok 67 - keeps same-title notices with distinct official URLs and favors recency within a cycle
+  ---
+  duration_ms: 1.2872
+  type: 'test'
+  ...
+# Subtest: uses the admissions-list context for short actionable titles while excluding doctoral notices
+ok 68 - uses the admissions-list context for short actionable titles while excluding doctoral notices
+  ---
+  duration_ms: 2.2012
+  type: 'test'
+  ...
+# Subtest: infers the publication year for month-day notices on the HNU homepage
+ok 69 - infers the publication year for month-day notices on the HNU homepage
+  ---
+  duration_ms: 3.5006
+  type: 'test'
+  ...
+# Subtest: accepts relevant CHSI ministry policy notices and rejects unrelated policy or off-domain links
+ok 70 - accepts relevant CHSI ministry policy notices and rejects unrelated policy or off-domain links
+  ---
+  duration_ms: 4.8637
+  type: 'test'
+  ...
+# Subtest: recognizes real HNU and CHSI masters admissions titles
+ok 71 - recognizes real HNU and CHSI masters admissions titles
+  ---
+  duration_ms: 4.265
+  type: 'test'
+  ...
+# Subtest: keeps the notice id stable across content changes while contentHash changes
+ok 72 - keeps the notice id stable across content changes while contentHash changes
+  ---
+  duration_ms: 2.667
+  type: 'test'
+  ...
+# Subtest: uses the Shanghai calendar for short dates and rejects impossible calendar dates
+ok 73 - uses the Shanghai calendar for short dates and rejects impossible calendar dates
+  ---
+  duration_ms: 2.5449
+  type: 'test'
+  ...
+# Subtest: returns parser diagnostics while parseOfficialList remains an updates-only wrapper
+ok 74 - returns parser diagnostics while parseOfficialList remains an updates-only wrapper
+  ---
+  duration_ms: 3.5725
+  type: 'test'
+  ...
+# Subtest: parses a dated non-list announcement without borrowing a distant date
+ok 75 - parses a dated non-list announcement without borrowing a distant date
+  ---
+  duration_ms: 1.61
+  type: 'test'
+  ...
+# Subtest: does not let unrelated list markup hide a dated announcement block
+ok 76 - does not let unrelated list markup hide a dated announcement block
+  ---
+  duration_ms: 1.104
+  type: 'test'
+  ...
+# Subtest: requires graduate context for normal-source notices unless the source is an admissions list
+ok 77 - requires graduate context for normal-source notices unless the source is an admissions list
+  ---
+  duration_ms: 1.4969
+  type: 'test'
+  ...
+# Subtest: rejects national masters training policy even when its title also mentions admissions work
+ok 78 - rejects national masters training policy even when its title also mentions admissions work
+  ---
+  duration_ms: 1.0921
+  type: 'test'
+  ...
+# Subtest: forms unique announcement cards from nested markup without pairing multi-link containers
+ok 79 - forms unique announcement cards from nested markup without pairing multi-link containers
+  ---
+  duration_ms: 3.2159
+  type: 'test'
+  ...
+# Subtest: uses the first valid visible publication date without reading href or title attributes
+ok 80 - uses the first valid visible publication date without reading href or title attributes
+  ---
+  duration_ms: 1.8663
+  type: 'test'
+  ...
+# Subtest: counts announcement candidates separately from safe, relevant unique updates
+ok 81 - counts announcement candidates separately from safe, relevant unique updates
+  ---
+  duration_ms: 2.4985
+  type: 'test'
+  ...
+# Subtest: ignores non-visible script dates when selecting a publication date
+ok 82 - ignores non-visible script dates when selecting a publication date
+  ---
+  duration_ms: 1.3621
+  type: 'test'
+  ...
+# Subtest: ignores complete announcement markup embedded in hidden regions
+ok 83 - ignores complete announcement markup embedded in hidden regions
+  ---
+  duration_ms: 1.0901
+  type: 'test'
+  ...
+# Subtest: does not let an unclosed pseudo div inside script break a following real card
+ok 84 - does not let an unclosed pseudo div inside script break a following real card
+  ---
+  duration_ms: 0.9034
+  type: 'test'
+  ...
+# Subtest: masks nested templates through their matching outer closing tag
+ok 85 - masks nested templates through their matching outer closing tag
+  ---
+  duration_ms: 0.5754
+  type: 'test'
+  ...
+# Subtest: masks unclosed hidden regions through EOF without producing diagnostics candidates
+ok 86 - masks unclosed hidden regions through EOF without producing diagnostics candidates
+  ---
+  duration_ms: 0.6158
+  type: 'test'
+  ...
+# Subtest: production HNU source contexts recall short admissions notices without admitting campus or other-level noise
+ok 87 - production HNU source contexts recall short admissions notices without admitting campus or other-level noise
+  ---
+  duration_ms: 6.5295
+  type: 'test'
+  ...
+# Subtest: numeric HTML entities outside the Unicode code-point range stay literal instead of throwing
+ok 88 - numeric HTML entities outside the Unicode code-point range stay literal instead of throwing
+  ---
+  duration_ms: 0.7414
+  type: 'test'
+  ...
+# Subtest: refresh summaries are formatted as one-line JSON records
+ok 89 - refresh summaries are formatted as one-line JSON records
+  ---
+  duration_ms: 11.3182
+  type: 'test'
+  ...
+# Subtest: the live backend serves all focused pages and their short aliases
+ok 90 - the live backend serves all focused pages and their short aliases
+  ---
+  duration_ms: 4107.2818
+  type: 'test'
+  ...
+# Subtest: a snapshot read starts an overdue refresh without delaying the response
+ok 91 - a snapshot read starts an overdue refresh without delaying the response
+  ---
+  duration_ms: 91.6512
+  type: 'test'
+  ...
+# Subtest: serves the live snapshot and manual refresh over JSON APIs
+ok 92 - serves the live snapshot and manual refresh over JSON APIs
+  ---
+  duration_ms: 44.8942
+  type: 'test'
+  ...
+# Subtest: keeps the existing static guide available with HEAD support
+ok 93 - keeps the existing static guide available with HEAD support
+  ---
+  duration_ms: 25.0566
+  type: 'test'
+  ...
+# Subtest: serves each named guide page through canonical and extension aliases
+ok 94 - serves each named guide page through canonical and extension aliases
+  ---
+  duration_ms: 121.6741
+  type: 'test'
+  ...
+# Subtest: rejects unsupported API methods and does not expose project internals
+ok 95 - rejects unsupported API methods and does not expose project internals
+  ---
+  duration_ms: 15.6751
+  type: 'test'
+  ...
+# Subtest: returns JSON 413 instead of resetting the connection for an oversized refresh body
+ok 96 - returns JSON 413 instead of resetting the connection for an oversized refresh body
+  ---
+  duration_ms: 8.5078
+  type: 'test'
+  ...
+# Subtest: blocks cross-site or unmarked requests from triggering an official refresh
+ok 97 - blocks cross-site or unmarked requests from triggering an official refresh
+  ---
+  duration_ms: 9.494
+  type: 'test'
+  ...
+# Subtest: manual refresh rejects DNS rebinding and missing origins, then enforces a bounded cooldown
+ok 98 - manual refresh rejects DNS rebinding and missing origins, then enforces a bounded cooldown
+  ---
+  duration_ms: 12.644
+  type: 'test'
+  ...
+# Subtest: health distinguishes a live process from trusted-data readiness
+ok 99 - health distinguishes a live process from trusted-data readiness
+  ---
+  duration_ms: 9.62
+  type: 'test'
+  ...
+# Subtest: serves the complete offline site and nine focused guide pages with shared navigation
+ok 100 - serves the complete offline site and nine focused guide pages with shared navigation
+  ---
+  duration_ms: 102.8621
+  type: 'test'
+  ...
+# Subtest: does not expose paths outside the site root
+ok 101 - does not expose paths outside the site root
+  ---
+  duration_ms: 6.4902
+  type: 'test'
+  ...
+# Subtest: the Windows launcher explicit port overrides an inherited PORT
+ok 102 - the Windows launcher explicit port overrides an inherited PORT
+  ---
+  duration_ms: 5000.4458
+  type: 'test'
+  ...
+# Subtest: Windows lifecycle treats an identified live seed service as running without claiming data readiness
+ok 103 - Windows lifecycle treats an identified live seed service as running without claiming data readiness
+  ---
+  duration_ms: 6105.0933
+  type: 'test'
+  ...
+# Subtest: Windows stop keeps a stale PID when the identified guide is live but not data-ready
+ok 104 - Windows stop keeps a stale PID when the identified guide is live but not data-ready
+  ---
+  duration_ms: 4007.9405
+  type: 'test'
+  ...
+# Subtest: concurrent Windows launches share one owned service and both succeed
+ok 105 - concurrent Windows launches share one owned service and both succeed
+  ---
+  duration_ms: 5811.3918
+  type: 'test'
+  ...
+# Subtest: the Windows launcher holds a Global project-and-port mutex through readiness
+ok 106 - the Windows launcher holds a Global project-and-port mutex through readiness
+  ---
+  duration_ms: 9541.1569
+  type: 'test'
+  ...
+# Subtest: non-default ports use independent port-specific PID files
+ok 107 - non-default ports use independent port-specific PID files
+  ---
+  duration_ms: 8168.0785
+  type: 'test'
+  ...
+# Subtest: a failed Windows launch preserves a PID replaced by another writer
+ok 108 - a failed Windows launch preserves a PID replaced by another writer
+  ---
+  duration_ms: 5846.5983
+  type: 'test'
+  ...
+# Subtest: PID publication failure terminates and waits for the launched child
+ok 109 - PID publication failure terminates and waits for the launched child
+  ---
+  duration_ms: 3602.7628
+  type: 'test'
+  ...
+# Subtest: the Windows launcher atomically replaces an existing port PID file
+ok 110 - the Windows launcher atomically replaces an existing port PID file
+  ---
+  duration_ms: 5067.8779
+  type: 'test'
+  ...
+# Subtest: the Windows launcher retains only the newest fourteen log pairs
+ok 111 - the Windows launcher retains only the newest fourteen log pairs
+  ---
+  duration_ms: 4775.4007
+  type: 'test'
+  ...
+# Subtest: the Windows launcher cleans orphaned log files alongside complete pairs
+ok 112 - the Windows launcher cleans orphaned log files alongside complete pairs
+  ---
+  duration_ms: 4745.3713
+  type: 'test'
+  ...
+# Subtest: browser launch failure after readiness is a warning, not launch failure
+ok 113 - browser launch failure after readiness is a warning, not launch failure
+  ---
+  duration_ms: 4567.95
+  type: 'test'
+  ...
+# Subtest: Windows stop keeps the PID when the managed service remains healthy
+ok 114 - Windows stop keeps the PID when the managed service remains healthy
+  ---
+  duration_ms: 6784.8532
+  type: 'test'
+  ...
+# Subtest: Windows stop removes PID only after process exit and failed health probe
+ok 115 - Windows stop removes PID only after process exit and failed health probe
+  ---
+  duration_ms: 6947.4788
+  type: 'test'
+  ...
+# Subtest: Windows stop holds the same Global lifecycle mutex through cleanup
+ok 116 - Windows stop holds the same Global lifecycle mutex through cleanup
+  ---
+  duration_ms: 16887.5978
+  type: 'test'
+  ...
+# Subtest: concurrent stop and replacement launch cannot delete the new PID
+ok 117 - concurrent stop and replacement launch cannot delete the new PID
+  ---
+  duration_ms: 10852.0684
+  type: 'test'
+  ...
+# Subtest: Windows stop distinguishes a CIM query error from process absence
+ok 118 - Windows stop distinguishes a CIM query error from process absence
+  ---
+  duration_ms: 4325.0519
+  type: 'test'
+  ...
+# Subtest: default-port stop remains compatible with data/server.pid
+ok 119 - default-port stop remains compatible with data/server.pid
+  ---
+  duration_ms: 1592.6668
+  type: 'test'
+  ...
+# Subtest: Windows stop keeps PID when the fixed native process object exits before Kill
+ok 120 - Windows stop keeps PID when the fixed native process object exits before Kill
+  ---
+  duration_ms: 5612.6816
+  type: 'test'
+  ...
+# Subtest: Windows stop requires the exact server script argument
+ok 121 - Windows stop requires the exact server script argument
+  ---
+  duration_ms: 4259.4004
+  type: 'test'
+  ...
+# Subtest: Windows stop rejects server.cjs when it is only an ordinary Node argument
+ok 122 - Windows stop rejects server.cjs when it is only an ordinary Node argument
+  ---
+  duration_ms: 4308.1267
+  type: 'test'
+  ...
+# Subtest: concurrent different-port launches use distinct log pairs and retain without deletion races
+ok 123 - concurrent different-port launches use distinct log pairs and retain without deletion races
+  ---
+  duration_ms: 6012.898
+  type: 'test'
+  ...
+# Subtest: concurrent different-port launches retain at most fourteen mixed legacy and port log pairs project-wide
+ok 124 - concurrent different-port launches retain at most fourteen mixed legacy and port log pairs project-wide
+  ---
+  duration_ms: 6026.8269
+  type: 'test'
+  ...
+# Subtest: failed launch keeps its published PID when child cleanup cannot confirm exit
+ok 125 - failed launch keeps its published PID when child cleanup cannot confirm exit
+  ---
+  duration_ms: 18460.0237
+  type: 'test'
+  ...
+# Subtest: Windows stop rejects a second CIM result with a different creation time and keeps PID
+ok 126 - Windows stop rejects a second CIM result with a different creation time and keeps PID
+  ---
+  duration_ms: 4109.0073
+  type: 'test'
+  ...
+# Subtest: Windows stop rejects a second CIM result with a missing creation time and keeps PID
+ok 127 - Windows stop rejects a second CIM result with a missing creation time and keeps PID
+  ---
+  duration_ms: 3965.3545
+  type: 'test'
+  ...
+# Subtest: Windows batch wrappers pass through PowerShell exit codes
+ok 128 - Windows batch wrappers pass through PowerShell exit codes
+  ---
+  duration_ms: 1229.4354
+  type: 'test'
+  ...
+# Subtest: print media keeps detail-page hero copy readable on a white background
+ok 129 - print media keeps detail-page hero copy readable on a white background
+  ---
+  duration_ms: 2.8204
+  type: 'test'
+  ...
+# Subtest: a successful refresh combines both sources and persists a fresh snapshot
+ok 130 - a successful refresh combines both sources and persists a fresh snapshot
+  ---
+  duration_ms: 60.8014
+  type: 'test'
+  ...
+# Subtest: a partial source failure retains that source cache and marks the snapshot stale
+ok 131 - a partial source failure retains that source cache and marks the snapshot stale
+  ---
+  duration_ms: 798.6174
+  type: 'test'
+  ...
+# Subtest: an all-source failure serves the last success without overwriting its disk cache
+ok 132 - an all-source failure serves the last success without overwriting its disk cache
+  ---
+  duration_ms: 936.2887
+  type: 'test'
+  ...
+# Subtest: concurrent refresh calls share one upstream request per source
+ok 133 - concurrent refresh calls share one upstream request per source
+  ---
+  duration_ms: 3.954
+  type: 'test'
+  ...
+# Subtest: concurrent initialization and refresh await one cache load before using state
+ok 134 - concurrent initialization and refresh await one cache load before using state
+  ---
+  duration_ms: 1.986
+  type: 'test'
+  ...
+# Subtest: an HTTP 200 page with no recognizable notices is treated as a source failure
+ok 135 - an HTTP 200 page with no recognizable notices is treated as a source failure
+  ---
+  duration_ms: 1.3013
+  type: 'test'
+  ...
+# Subtest: manual refresh preserves the actual next automatic timer deadline
+ok 136 - manual refresh preserves the actual next automatic timer deadline
+  ---
+  duration_ms: 3.3691
+  type: 'test'
+  ...
+# Subtest: a refresh finishing after an automatic tick keeps the next automatic deadline
+ok 137 - a refresh finishing after an automatic tick keeps the next automatic deadline
+  ---
+  duration_ms: 2.9498
+  type: 'test'
+  ...
+# Subtest: a refresh finishing after a cache-write overlap keeps the next automatic deadline
+ok 138 - a refresh finishing after a cache-write overlap keeps the next automatic deadline
+  ---
+  duration_ms: 1.8513
+  type: 'test'
+  ...
+# Subtest: a due refresh triggered by a snapshot read never publishes a past next-refresh deadline
+ok 139 - a due refresh triggered by a snapshot read never publishes a past next-refresh deadline
+  ---
+  duration_ms: 2.3298
+  type: 'test'
+  ...
+# Subtest: rejects an upstream redirect that leaves Hainan University official domains
+ok 140 - rejects an upstream redirect that leaves Hainan University official domains
+  ---
+  duration_ms: 1.2006
+  type: 'test'
+  ...
+# Subtest: rejects a declared oversized response before buffering its body
+ok 141 - rejects a declared oversized response before buffering its body
+  ---
+  duration_ms: 0.6895
+  type: 'test'
+  ...
+# Subtest: sanitizes malformed cache entries before combining a partial refresh
+ok 142 - sanitizes malformed cache entries before combining a partial refresh
+  ---
+  duration_ms: 775.4236
+  type: 'test'
+  ...
+# Subtest: migrates a v1 cache without inventing a current discovery time
+ok 143 - migrates a v1 cache without inventing a current discovery time
+  ---
+  duration_ms: 1.8819
+  type: 'test'
+  ...
+# Subtest: retains a full historical cache when a new low-keyword notice arrives
+ok 144 - retains a full historical cache when a new low-keyword notice arrives
+  ---
+  duration_ms: 6.8664
+  type: 'test'
+  ...
+# Subtest: retries one transient source failure and records the successful second attempt
+ok 145 - retries one transient source failure and records the successful second attempt
+  ---
+  duration_ms: 1.1179
+  type: 'test'
+  ...
+# Subtest: preserves discovery time and reports only genuinely new notice ids on later refreshes
+ok 146 - preserves discovery time and reports only genuinely new notice ids on later refreshes
+  ---
+  duration_ms: 1.4244
+  type: 'test'
+  ...
+# Subtest: marks an overdue snapshot and coalesces repeated due-refresh checks
+ok 147 - marks an overdue snapshot and coalesces repeated due-refresh checks
+  ---
+  duration_ms: 1.8193
+  type: 'test'
+  ...
+# Subtest: freshness is aggregated from every configured source success time
+ok 148 - freshness is aggregated from every configured source success time
+  ---
+  duration_ms: 0.8051
+  type: 'test'
+  ...
+# Subtest: aggregate never freshness does not report a misleading successful-source age
+ok 149 - aggregate never freshness does not report a misleading successful-source age
+  ---
+  duration_ms: 0.7987
+  type: 'test'
+  ...
+# Subtest: each drift gate retries once then preserves the trusted source cache as degraded
+    # Subtest: count drop
+    ok 1 - count drop
+      ---
+      duration_ms: 4.1876
+      type: 'test'
+      ...
+    # Subtest: URL disappearance
+    ok 2 - URL disappearance
+      ---
+      duration_ms: 3.6144
+      type: 'test'
+      ...
+    # Subtest: publication rollback
+    ok 3 - publication rollback
+      ---
+      duration_ms: 1.2644
+      type: 'test'
+      ...
+    1..3
+ok 150 - each drift gate retries once then preserves the trusted source cache as degraded
+  ---
+  duration_ms: 10.3389
+  type: 'test'
+  ...
+# Subtest: a legitimate prune of old notices does not trip the drift gate
+ok 151 - a legitimate prune of old notices does not trip the drift gate
+  ---
+  duration_ms: 2.7371
+  type: 'test'
+  ...
+# Subtest: same source URL title edit keeps one record and reports an update rather than a discovery
+ok 152 - same source URL title edit keeps one record and reports an update rather than a discovery
+  ---
+  duration_ms: 1.3861
+  type: 'test'
+  ...
+# Subtest: trusted shrink marks history missing, reappearance clears it, and age or cycle limits expire it
+ok 153 - trusted shrink marks history missing, reappearance clears it, and age or cycle limits expire it
+  ---
+  duration_ms: 4.5302
+  type: 'test'
+  ...
+# Subtest: every current-refresh discovery survives the 120 item capacity cap
+ok 154 - every current-refresh discovery survives the 120 item capacity cap
+  ---
+  duration_ms: 5.4825
+  type: 'test'
+  ...
+# Subtest: capacity identity keeps the same normalized URL from distinct sources
+ok 155 - capacity identity keeps the same normalized URL from distinct sources
+  ---
+  duration_ms: 4.6267
+  type: 'test'
+  ...
+# Subtest: HTTP 429 honors a bounded Retry-After delay and records the actual delay
+ok 156 - HTTP 429 honors a bounded Retry-After delay and records the actual delay
+  ---
+  duration_ms: 1.4595
+  type: 'test'
+  ...
+# Subtest: HTTP 429 distinguishes missing, HTTP-date, and explicit zero Retry-After values
+    # Subtest: missing header uses configured delay
+    ok 1 - missing header uses configured delay
+      ---
+      duration_ms: 0.8844
+      type: 'test'
+      ...
+    # Subtest: HTTP-date uses delta from checked time
+    ok 2 - HTTP-date uses delta from checked time
+      ---
+      duration_ms: 0.5346
+      type: 'test'
+      ...
+    # Subtest: explicit zero retries immediately
+    ok 3 - explicit zero retries immediately
+      ---
+      duration_ms: 0.4836
+      type: 'test'
+      ...
+    1..3
+ok 157 - HTTP 429 distinguishes missing, HTTP-date, and explicit zero Retry-After values
+  ---
+  duration_ms: 2.5023
+  type: 'test'
+  ...
+# Subtest: file cache recovers a corrupt primary from backup and exposes unrecoverable corruption
+ok 158 - file cache recovers a corrupt primary from backup and exposes unrecoverable corruption
+  ---
+  duration_ms: 56.8672
+  type: 'test'
+  ...
+# Subtest: file cache reports a missing primary separately when the backup is also broken
+ok 159 - file cache reports a missing primary separately when the backup is also broken
+  ---
+  duration_ms: 12.7761
+  type: 'test'
+  ...
+# Subtest: recovered cache never lets a corrupt primary overwrite the only trusted backup
+ok 160 - recovered cache never lets a corrupt primary overwrite the only trusted backup
+  ---
+  duration_ms: 30.9282
+  type: 'test'
+  ...
+# Subtest: refresh completion events and success clocks distinguish partial from all-source success
+ok 161 - refresh completion events and success clocks distinguish partial from all-source success
+  ---
+  duration_ms: 2.2808
+  type: 'test'
+  ...
+# Subtest: scheduled refresh failures are surfaced to the server error callback
+ok 162 - scheduled refresh failures are surfaced to the server error callback
+  ---
+  duration_ms: 0.9549
+  type: 'test'
+  ...
+# Subtest: every refresh emits one completion event when retry waiting or upstream fetch rejects
+    # Subtest: retry wait rejects
+    ok 1 - retry wait rejects
+      ---
+      duration_ms: 0.3393
+      type: 'test'
+      ...
+    # Subtest: upstream fetch rejects
+    ok 2 - upstream fetch rejects
+      ---
+      duration_ms: 0.2247
+      type: 'test'
+      ...
+    1..2
+ok 163 - every refresh emits one completion event when retry waiting or upstream fetch rejects
+  ---
+  duration_ms: 0.9898
+  type: 'test'
+  ...
+# Subtest: fatal multi-source refresh waits for every source before completion and keeps in-flight coalescing
+ok 164 - fatal multi-source refresh waits for every source before completion and keeps in-flight coalescing
+  ---
+  duration_ms: 1.7537
+  type: 'test'
+  ...
+# Subtest: async refresh event callback rejection is isolated without an unhandled rejection
+ok 165 - async refresh event callback rejection is isolated without an unhandled rejection
+  ---
+  duration_ms: 2.8018
+  type: 'test'
+  ...
+# Subtest: file cache treats parseable but structurally invalid snapshots as corruption and protects a trusted backup
+ok 166 - file cache treats parseable but structurally invalid snapshots as corruption and protects a trusted backup
+  ---
+  duration_ms: 41.2621
+  type: 'test'
+  ...
+# Subtest: parser diagnostics are validated, persisted per source, and included in completion summaries
+ok 167 - parser diagnostics are validated, persisted per source, and included in completion summaries
+  ---
+  duration_ms: 1.6549
+  type: 'test'
+  ...
+# Subtest: invalid parser diagnostics and complete container-type drift retry then retain trusted source state
+    # Subtest: diagnostic counts contradict parsed updates
+    ok 1 - diagnostic counts contradict parsed updates
+      ---
+      duration_ms: 0.8671
+      type: 'test'
+      ...
+    # Subtest: all trusted container types disappear
+    ok 2 - all trusted container types disappear
+      ---
+      duration_ms: 0.3512
+      type: 'test'
+      ...
+    1..2
+ok 168 - invalid parser diagnostics and complete container-type drift retry then retain trusted source state
+  ---
+  duration_ms: 2.21
+  type: 'test'
+  ...
+# Subtest: missing history clears a transient updated marker
+ok 169 - missing history clears a transient updated marker
+  ---
+  duration_ms: 2.5719
+  type: 'test'
+  ...
+# Subtest: new-id telemetry references only retained discoveries and reports capacity discards
+ok 170 - new-id telemetry references only retained discoveries and reports capacity discards
+  ---
+  duration_ms: 19.2277
+  type: 'test'
+  ...
+# Subtest: Vercel entry exports a callable handler without starting a listener
+ok 171 - Vercel entry exports a callable handler without starting a listener
+  ---
+  duration_ms: 10.1732
+  type: 'test'
+  ...
+# Subtest: cloud GET waits for due refresh and cloud POST accepts only configured HTTPS origins
+ok 172 - cloud GET waits for due refresh and cloud POST accepts only configured HTTPS origins
+  ---
+  duration_ms: 67.9746
+  type: 'test'
+  ...
+# Vercel request failed: temporary failure
+# Subtest: cloud initialization failure returns JSON and can recover on a later invocation
+ok 173 - cloud initialization failure returns JSON and can recover on a later invocation
+  ---
+  duration_ms: 9.2201
+  type: 'test'
+  ...
+# Subtest: first cloud visit fetches notices even though a new seed has a future refresh deadline
+ok 174 - first cloud visit fetches notices even though a new seed has a future refresh deadline
+  ---
+  duration_ms: 4.6918
+  type: 'test'
+  ...
+# Subtest: cloud cache stays outside the read-only deployment directory
+ok 175 - cloud cache stays outside the read-only deployment directory
+  ---
+  duration_ms: 0.3854
+  type: 'test'
+  ...
+# Subtest: Vercel static build publishes only website files with truthful cloud copy
+ok 176 - Vercel static build publishes only website files with truthful cloud copy
+  ---
+  duration_ms: 88.6531
+  type: 'test'
+  ...
+1..176
+# tests 186
+# suites 0
+# pass 186
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 168984.2817

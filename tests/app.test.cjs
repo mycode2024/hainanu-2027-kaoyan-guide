@@ -217,6 +217,7 @@ function installFakePage(options = {}) {
     setItem(key, value) { this.values.set(key, value); }
   };
   const fakeDocument = {
+    body: { dataset: { hosting: options.hosting } },
     readyState: 'complete',
     visibilityState: 'visible',
     addEventListener(type, listener) {
@@ -970,6 +971,18 @@ test('aborts an overdue fetch and restores the refresh control after cleanup', a
     assert.equal(page.elements.refresh.disabled, false);
     assert.equal(page.elements.refresh.getAttribute('aria-busy'), null);
     assert.equal(page.elements.refresh.textContent, '立即同步');
+  });
+});
+
+test('cloud sync allows cold-start fetching and shows online recovery guidance', async () => {
+  await withFakePage({ hosting: 'vercel' }, async (page) => {
+    page.runTimers(8_000);
+    assert.equal(page.fetchCalls[0].aborted, false);
+    page.runTimers(30_000);
+    assert.equal(page.fetchCalls[0].aborted, true);
+    await page.flush();
+    assert.match(page.elements.statusDetail.textContent, /在线/);
+    assert.doesNotMatch(page.elements.statusDetail.textContent, /start-guide|npm start|127\.0\.0\.1/);
   });
 });
 

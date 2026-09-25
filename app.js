@@ -368,6 +368,7 @@
   }
 
   function initOfficialUpdates() {
+    const isCloud = document.body?.dataset?.hosting === 'vercel';
     const consoleElement = document.querySelector('#live-updates-console');
     const refreshButton = document.querySelector('#refresh-official-updates');
     if (!consoleElement || !refreshButton) return;
@@ -554,7 +555,7 @@
       if (freshness) freshness.textContent = formatFreshness(payload.freshness, payload.refreshIntervalMs);
       if (nextRefresh) {
         const refreshInterval = formatRefreshInterval(payload.refreshIntervalMs);
-        nextRefresh.textContent = payload.nextRefreshAt
+        nextRefresh.textContent = isCloud ? '访问时检查 · 可手动同步' : payload.nextRefreshAt
           ? formatLiveDate(payload.nextRefreshAt)
           : refreshInterval === '按刷新周期' ? refreshInterval : `每 ${refreshInterval}`;
       }
@@ -587,7 +588,7 @@
       if (!hasRenderedSnapshot) {
         if (lastSuccess) lastSuccess.textContent = '—';
         if (freshness) freshness.textContent = '服务未连接';
-        if (nextRefresh) nextRefresh.textContent = '启动服务后启用';
+        if (nextRefresh) nextRefresh.textContent = isCloud ? '连接恢复后启用' : '启动服务后启用';
         if (sourceCount) sourceCount.textContent = '0 / 4 连接';
         if (newCount) newCount.hidden = true;
         if (sourceHealth) sourceHealth.replaceChildren();
@@ -595,7 +596,7 @@
           const empty = createTextElement('li', 'official-update-empty');
           empty.append(
             createTextElement('strong', '', '静态导航仍可正常使用'),
-            createTextElement('span', '', '启动本地服务后，这里会显示自动获取的海南大学官方通知。')
+            createTextElement('span', '', isCloud ? '在线通知服务暂不可用，请稍后重试或进入官方信源页查看原文。' : '启动本地服务后，这里会显示自动获取的海南大学官方通知。')
           );
           updatesList.replaceChildren(empty);
         }
@@ -614,7 +615,7 @@
       requestInFlight = true;
       const controller = new AbortController();
       activeRequestController = controller;
-      const timeout = window.setTimeout(() => controller.abort(), 8_000);
+      const timeout = window.setTimeout(() => controller.abort(), isCloud ? 30_000 : 8_000);
       const showBusy = manual || !hasRenderedSnapshot;
       if (showBusy) {
         refreshButton.disabled = true;
@@ -646,7 +647,8 @@
         if (document.visibilityState !== 'hidden') {
           renderDisconnected(hasRenderedSnapshot
             ? '本次同步失败，已保留当前页面中的最近数据。'
-            : '请运行 start-guide.cmd 或 npm start，再通过 http://127.0.0.1:4173 打开本页。');
+            : isCloud ? '在线通知服务暂未响应，请稍后重试；各导航页面仍可使用。'
+              : '请运行 start-guide.cmd 或 npm start，再通过 http://127.0.0.1:4173 打开本页。');
         }
       } finally {
         window.clearTimeout(timeout);
