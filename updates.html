@@ -46,6 +46,10 @@
             <div class="live-connection" role="status" aria-live="polite"><span class="live-orbit" aria-hidden="true"><span></span></span><div><p>OFFICIAL FEED / 官方信息流</p><strong id="live-status-title">正在连接本地更新服务</strong><small id="live-status-detail">页面载入后会自动读取最新快照。</small></div></div>
             <div class="live-console-actions"><span class="live-new-count" id="live-new-count" hidden></span><button class="button live-refresh-button" id="refresh-official-updates" type="button">立即同步</button></div>
           </div>
+          <div class="notice-filters" aria-label="按年份和类别筛选" hidden>
+            <div class="notice-filter"><label for="updates-year">招生年份</label><select id="updates-year"><option value="all">全部年份</option><option value="2027">2027 招生</option><option value="history">往年参考</option><option value="unknown">年份未注明</option></select></div>
+            <div class="notice-filter"><label for="updates-category">通知类别</label><select id="updates-category"><option value="all">全部类别</option><option>国家政策</option><option>简章目录</option><option>初试科目</option><option>报名确认</option><option>资格准考</option><option>成绩分数线</option><option>复试录取</option><option>推免</option><option>招生动态</option></select></div>
+          </div>
           <div class="live-update-controls" role="group" aria-label="公告显示范围"><button type="button" data-updates-filter="all" aria-pressed="true">全部</button><button type="button" data-updates-filter="new" aria-pressed="false">只看新</button><button type="button" id="acknowledge-official-updates" title="将所有分页中的新收录通知标为已读">全部标为已读</button></div>
           <p class="storage-session-warning" id="storage-session-warning" role="status" hidden>浏览器未允许本地保存：勾选和已读状态仅本次会话保存。</p>
           <dl class="live-metrics"><div><dt>最近成功同步</dt><dd id="live-last-success">读取中…</dd></div><div><dt>数据新鲜度</dt><dd id="live-freshness">读取中…</dd></div><div><dt>下次自动检查</dt><dd id="live-next-refresh">读取中…</dd></div><div><dt>官方来源状态</dt><dd id="live-source-count">连接中</dd></div></dl>
@@ -59,6 +63,6 @@
       </section>
     </main>
   </div>
-  <footer class="site-footer"><div><strong>海南大学 2027 计算机 408 考研航线图</strong><p>个人备考导航，不是海南大学或研招网官方页面。静态内容复核日期：2026-09-21；动态通知由本地服务另行同步。</p></div><div class="footer-actions"><button class="button button-secondary" type="button" data-print>打印 / 导出 PDF</button><a class="text-link" href="#top">回到顶部 ↑</a></div></footer>
+  <footer class="site-footer"><div><strong>海南大学 2027 计算机 408 考研航线图</strong><p data-review-footer>个人备考导航，不是海南大学或研招网官方页面。信息核对：全国日程与报名流程 <time data-review-date="national" datetime="2026-09-26">2026-09-26</time>。核对范围分别标注，动态通知由本地服务另行同步。</p></div><div class="footer-actions"><button class="button button-secondary" type="button" data-print>打印 / 导出 PDF</button><a class="text-link" href="#top">回到顶部 ↑</a></div></footer>
 </body>
 </html>

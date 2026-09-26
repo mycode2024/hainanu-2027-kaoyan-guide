@@ -12,10 +12,12 @@
     'material-special', 'material-backup'
   ]);
   const checklistIdSet = new Set(CHECKLIST_IDS);
+  const optionalChecklistIds = new Set(['stage-preapply', 'material-point', 'material-special']);
 
   const milestones = [
     { id: 'verify', start: '2026-07-02', end: '2026-09-14', label: '锁定专业基线', action: '按 408 推进一轮复习，等待 2027 正式目录' },
     { id: 'directory', start: '2026-09-15', end: '2026-09-30', label: '招生章程与目录观察窗', action: '逐字段核对专业、院系、科目、备注与计划' },
+    { id: 'consultation', start: '2026-09-26', end: '2026-09-29', label: '研招咨询活动', action: '进入研招网在线咨询，向招生单位核对专业限制、科目和报考要求' },
     { id: 'preapply', start: '2026-10-09', end: '2026-10-12', label: '网上预报名', action: '每日 9:00—22:00；按所在省安排填报并提交核验材料' },
     { id: 'apply', start: '2026-10-15', end: '2026-10-24', label: '全国网上报名', action: '每日 9:00—22:00；填写信息、一并提交核验材料并完成缴费' },
     // The 2027 process combines registration and confirmation. Local review and
@@ -70,7 +72,7 @@
       if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') return {};
       const allowedIdSet = allowedIds ? new Set(allowedIds) : null;
       return Object.fromEntries(Object.entries(parsed).filter(([id, value]) => (
-        typeof value === 'boolean' && (!allowedIdSet || allowedIdSet.has(id))
+        (typeof value === 'boolean' || (value === 'na' && optionalChecklistIds.has(id))) && (!allowedIdSet || allowedIdSet.has(id))
       )));
     } catch {
       return {};
@@ -82,7 +84,7 @@
     const filteredPageValues = pageValues && typeof pageValues === 'object' ? pageValues : {};
     return Object.fromEntries(
       Object.entries({ ...filteredStored, ...filteredPageValues }).filter(([id, value]) => (
-        checklistIdSet.has(id) && typeof value === 'boolean'
+        checklistIdSet.has(id) && (typeof value === 'boolean' || (value === 'na' && optionalChecklistIds.has(id)))
       ))
     );
   }
@@ -90,7 +92,8 @@
   function countChecklistProgress(state) {
     const filteredState = mergeChecklistState(state, {});
     const completed = CHECKLIST_IDS.filter((id) => filteredState[id] === true).length;
-    return { completed, total: CHECKLIST_IDS.length, percent: calculateProgress(completed, CHECKLIST_IDS.length) };
+    const total = CHECKLIST_IDS.filter((id) => filteredState[id] !== 'na').length;
+    return { completed, total, percent: calculateProgress(completed, total) };
   }
 
   function getLocalDateString(date) {
@@ -238,14 +241,22 @@
     return JSON.stringify(stableValue(value));
   }
 
-  function selectUpdatesForDisplay(updates, newIds, acknowledgedIds, mode) {
+  function selectUpdatesForDisplay(updates, newIds, acknowledgedIds, mode, filters = {}) {
     const allUpdates = Array.isArray(updates) ? updates : [];
     const activeNewIds = new Set(
       Array.from(newIds || []).filter((id) => !acknowledgedIds?.has(id))
     );
-    const selectedUpdates = mode === 'new'
+    const unreadSelection = mode === 'new'
       ? allUpdates.filter((update) => activeNewIds.has(update.id))
       : allUpdates;
+    const selectedUpdates = unreadSelection.filter((update) => {
+      const years = (update.title || '').match(/20\d{2}(?=\s*(?:年|级))/g) || [];
+      const matchesYear = !filters.year || filters.year === 'all' ||
+        (filters.year === '2027' && years.includes('2027')) ||
+        (filters.year === 'history' && years.length > 0 && years.every(year => Number(year) < 2027)) ||
+        (filters.year === 'unknown' && years.length === 0);
+      return matchesYear && (!filters.category || filters.category === 'all' || update.category === filters.category);
+    });
 
     return {
       updates: selectedUpdates,
@@ -369,6 +380,162 @@
     return element;
   }
 
+  function enhanceNoticeSelects(selects) {
+    const widgets = [];
+    selects.filter((select) => select?.options?.length).forEach((select) => {
+      const options = Array.from(select.options);
+      const label = document.querySelector(`label[for="${select.id}"]`);
+      const root = createTextElement('div', 'filter-select');
+      const trigger = createTextElement('button', 'filter-select-trigger');
+      trigger.type = 'button';
+      trigger.id = `${select.id}-trigger`;
+      trigger.setAttribute('role', 'combobox');
+      trigger.setAttribute('aria-haspopup', 'listbox');
+      trigger.setAttribute('aria-expanded', 'false');
+      const value = createTextElement('span', 'filter-select-value');
+      value.id = `${select.id}-value`;
+      const arrow = createTextElement('span', 'filter-select-arrow');
+      arrow.setAttribute('aria-hidden', 'true');
+      trigger.append(value, arrow);
+      const menu = createTextElement('div', 'filter-select-menu');
+      menu.id = `${select.id}-listbox`;
+      menu.setAttribute('role', 'listbox');
+      menu.setAttribute('aria-hidden', 'true');
+      trigger.setAttribute('aria-controls', menu.id);
+      if (label) {
+        label.id ||= `${select.id}-label`;
+        label.htmlFor = trigger.id;
+        trigger.setAttribute('aria-labelledby', `${label.id} ${value.id}`);
+        menu.setAttribute('aria-labelledby', label.id);
+      }
+      root.append(trigger);
+      select.after(root);
+      document.body.append(menu);
+      select.hidden = true;
+      let open = false;
+      let activeIndex = Math.max(0, select.selectedIndex);
+      let search = '';
+      let lastKeyAt = 0;
+
+      const rows = options.map((option, index) => {
+        const row = createTextElement('div', 'filter-select-option');
+        row.id = `${select.id}-option-${index}`;
+        row.setAttribute('role', 'option');
+        const check = createTextElement('span', 'filter-select-check', '✓');
+        check.setAttribute('aria-hidden', 'true');
+        row.append(createTextElement('span', '', option.textContent), check);
+        row.addEventListener('pointerdown', (event) => event.preventDefault());
+        row.addEventListener('click', () => { activeIndex = index; commit(); trigger.focus(); });
+        row.addEventListener('pointermove', () => { activeIndex = index; renderActive(); });
+        menu.append(row);
+        return row;
+      });
+
+      function renderActive() {
+        rows.forEach((row, index) => { row.dataset.active = String(index === activeIndex); });
+        if (open) trigger.setAttribute('aria-activedescendant', rows[activeIndex].id);
+      }
+      function sync() {
+        value.textContent = options[select.selectedIndex]?.textContent || '';
+        activeIndex = Math.max(0, select.selectedIndex);
+        rows.forEach((row, index) => row.setAttribute('aria-selected', String(index === select.selectedIndex)));
+        renderActive();
+      }
+      function close() {
+        open = false;
+        root.dataset.open = menu.dataset.open = 'false';
+        trigger.setAttribute('aria-expanded', 'false');
+        trigger.removeAttribute('aria-activedescendant');
+        menu.setAttribute('aria-hidden', 'true');
+        search = '';
+      }
+      function revealActive() {
+        const row = rows[activeIndex];
+        if (row.offsetTop < menu.scrollTop) menu.scrollTop = row.offsetTop;
+        else if (row.offsetTop + row.offsetHeight > menu.scrollTop + menu.clientHeight) {
+          menu.scrollTop = row.offsetTop + row.offsetHeight - menu.clientHeight;
+        }
+      }
+      function positionMenu() {
+        const rect = trigger.getBoundingClientRect();
+        const desired = Math.min(options.length * 44 + 16, 296);
+        const below = window.innerHeight - rect.bottom - 16;
+        const above = rect.top - 16;
+        const upward = below < desired && above > below;
+        const width = Math.min(rect.width, window.innerWidth - 24);
+        menu.style.width = `${width}px`;
+        menu.style.left = `${Math.max(12, Math.min(rect.left, window.innerWidth - width - 12))}px`;
+        menu.style.maxHeight = `${Math.min(desired, Math.max(0, upward ? above : below))}px`;
+        menu.style.top = `${upward ? rect.top - menu.offsetHeight - 8 : rect.bottom + 8}px`;
+        menu.dataset.direction = upward ? 'up' : 'down';
+      }
+      function expand() {
+        widgets.forEach((widget) => widget.close());
+        sync();
+        positionMenu();
+        open = true;
+        root.dataset.open = menu.dataset.open = 'true';
+        trigger.setAttribute('aria-expanded', 'true');
+        menu.setAttribute('aria-hidden', 'false');
+        renderActive();
+        revealActive();
+      }
+      function commit() {
+        const changed = select.value !== options[activeIndex].value;
+        select.value = options[activeIndex].value;
+        sync();
+        close();
+        if (changed) select.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+      trigger.addEventListener('click', () => open ? close() : expand());
+      trigger.addEventListener('keydown', (event) => {
+        if (event.key === 'Tab') { if (open) commit(); return; }
+        if (event.key === 'Escape') { if (open) { event.preventDefault(); close(); } return; }
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          if (open) commit(); else expand();
+          return;
+        }
+        if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
+          event.preventDefault();
+          const wasOpen = open;
+          if (!open) expand();
+          if (event.key === 'Home') activeIndex = 0;
+          else if (event.key === 'End') activeIndex = options.length - 1;
+          else if (wasOpen) activeIndex = Math.max(0, Math.min(options.length - 1, activeIndex + (event.key === 'ArrowDown' ? 1 : -1)));
+          renderActive();
+          revealActive();
+        } else if (event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey && !event.isComposing) {
+          event.preventDefault();
+          if (!open) expand();
+          const now = Date.now();
+          search = (now - lastKeyAt < 600 ? search : '') + event.key.toLocaleLowerCase();
+          lastKeyAt = now;
+          const match = options.findIndex((option) => option.textContent.trim().toLocaleLowerCase().startsWith(search));
+          if (match >= 0) { activeIndex = match; renderActive(); revealActive(); }
+        }
+      });
+      select.addEventListener('change', sync);
+      widgets.push({ root, menu, close, reposition() {
+        if (!open) return;
+        const rect = trigger.getBoundingClientRect();
+        if (rect.bottom <= 0 || rect.top >= window.innerHeight) close();
+        else positionMenu();
+      } });
+      sync();
+    });
+    if (!widgets.length) return;
+    const dismissOutside = (event) => widgets.forEach((widget) => {
+      if (!widget.root.contains(event.target) && !widget.menu.contains(event.target)) widget.close();
+    });
+    document.addEventListener('pointerdown', dismissOutside);
+    document.addEventListener('focusin', dismissOutside);
+    window.addEventListener('resize', () => widgets.forEach((widget) => widget.close()));
+    document.addEventListener('scroll', (event) => {
+      if (!widgets.some((widget) => widget.menu.contains(event.target))) widgets.forEach((widget) => widget.reposition());
+    }, true);
+  }
+
   function initOfficialUpdates() {
     const isCloud = document.body?.dataset?.hosting === 'vercel';
     const consoleElement = document.querySelector('#live-updates-console');
@@ -390,6 +557,11 @@
     let updatesPage = 1;
     let updatesPageCount = 1;
     const updateFilterButtons = Array.from(document.querySelectorAll('[data-updates-filter]'));
+    const yearFilter = document.querySelector('#updates-year');
+    const categoryFilter = document.querySelector('#updates-category');
+    const noticeFilters = document.querySelector('.notice-filters');
+    if (noticeFilters) noticeFilters.hidden = false;
+    enhanceNoticeSelects([yearFilter, categoryFilter]);
     const acknowledgeUpdatesButton = document.querySelector('#acknowledge-official-updates');
     let hasRenderedSnapshot = false;
     let unseenBaselineAt = null;
@@ -438,7 +610,8 @@
       if (!updatesList) return;
       const displayUpdates = aggregateUpdatesForDisplay(updates, unseenIds, acknowledgedUpdateIds);
       const displayNewIds = new Set(displayUpdates.filter((update) => update.isNew).map((update) => update.id));
-      const selection = selectUpdatesForDisplay(displayUpdates, displayNewIds, new Set(), updateView);
+      const filters = { year: yearFilter?.value || 'all', category: categoryFilter?.value || 'all' };
+      const selection = selectUpdatesForDisplay(displayUpdates, displayNewIds, new Set(), updateView, filters);
       const updateLimit = /^[1-9]\d*$/.test(updatesList.dataset.updateLimit || '')
         ? Number(updatesList.dataset.updateLimit)
         : null;
@@ -457,6 +630,7 @@
       const renderedNewIds = selection.newIds.filter((id) => renderedUpdates.some((update) => update.id === id));
       const listRenderKey = createUpdatesSnapshotKey({
         updateView,
+        filters,
         updates: renderedUpdates,
         newIds: renderedNewIds
       });
@@ -467,8 +641,10 @@
       if (!renderedUpdates.length) {
         const empty = createTextElement('li', 'official-update-empty');
         empty.append(
-          createTextElement('strong', '', updateView === 'new' ? '暂时没有未读通知' : '暂未读到相关通知'),
-          createTextElement('span', '', updateView === 'new'
+          createTextElement('strong', '', filters.year !== 'all' || filters.category !== 'all' ? '没有符合筛选条件的通知' : updateView === 'new' ? '暂时没有未读通知' : '暂未读到相关通知'),
+          createTextElement('span', '', filters.year !== 'all' || filters.category !== 'all'
+            ? '可选择“全部年份”和“全部类别”，或切换到“全部”查看其他通知。'
+            : updateView === 'new'
             ? '全部标为已读后，新收录通知会从此处移除；可切换到“全部”查看完整列表。'
             : '这不等于学校没有公告；可稍后手动同步或前往官方信源页查看。')
         );
@@ -684,6 +860,10 @@
     }
     previousPageButton?.addEventListener('click', () => changeUpdatesPage(-1));
     nextPageButton?.addEventListener('click', () => changeUpdatesPage(1));
+    [yearFilter, categoryFilter].forEach((select) => select?.addEventListener('change', () => {
+      updatesPage = 1;
+      renderCurrentUpdates();
+    }));
     updateFilterButtons.forEach((button) => {
       button.addEventListener('click', () => {
         updateView = button.dataset.updatesFilter === 'new' ? 'new' : 'all';
@@ -782,40 +962,47 @@
       return;
     }
     initSiteNavigation();
-    const todayString = getLocalDateString(new Date());
     const timelineElements = Array.from(document.querySelectorAll('[data-milestone-id]'));
-    const state = getTimelineState(milestones, todayString);
-    const activeMilestones = state.activeIds
-      .map((id) => milestones.find((milestone) => milestone.id === id))
-      .filter(Boolean);
-    const nextMilestone = milestones.find((milestone) => milestone.id === state.nextId);
+    function renderCurrentStage(checks) {
+      const todayString = getLocalDateString(new Date());
+      const state = getTimelineState(milestones, todayString);
+      const activeMilestones = state.activeIds
+        .map((id) => milestones.find((milestone) => milestone.id === id))
+        .filter(Boolean);
+      // An undated local review deadline must not disappear from the task view.
+      // This reminder does not extend any official submission deadline.
+      const reviewPending = todayString >= '2026-10-09' && checks['stage-confirm'] !== true;
+      if (reviewPending) activeMilestones.push(milestones.find(item => item.id === 'confirm'));
+      const nextMilestone = milestones.find((milestone) => milestone.id === state.nextId);
 
-    timelineElements.forEach((element) => {
-      const isActive = state.activeIds.includes(element.dataset.milestoneId);
-      element.classList.toggle('is-current', isActive);
-      if (isActive) element.setAttribute('aria-current', 'step');
-      else element.removeAttribute('aria-current');
-    });
+      timelineElements.forEach((element) => {
+        const isActive = activeMilestones.some(item => item.id === element.dataset.milestoneId);
+        element.classList.toggle('is-current', isActive);
+        if (isActive) element.setAttribute('aria-current', 'step');
+        else element.removeAttribute('aria-current');
+      });
 
-    const stageName = document.querySelector('#current-stage-name');
-    const stageDetail = document.querySelector('#current-stage-detail');
-    const nextName = document.querySelector('#next-stage-name');
-    const nextDays = document.querySelector('#next-stage-days');
+      const stageName = document.querySelector('#current-stage-name');
+      const stageDetail = document.querySelector('#current-stage-detail');
+      const nextName = document.querySelector('#next-stage-name');
+      const nextDays = document.querySelector('#next-stage-days');
 
-    if (stageName) stageName.textContent = activeMilestones.map((milestone) => milestone.label).join(' / ') || '等待下一节点';
-    if (stageDetail) {
-      stageDetail.textContent = activeMilestones.length
-        ? activeMilestones.map((milestone) => milestone.action || '按时间轴完成当前行动').join('；')
-        : '查看时间轴确认最近的官方节点';
+      if (stageName) stageName.textContent = activeMilestones.map((milestone) => milestone.label).join(' / ') || '等待下一节点';
+      if (stageDetail) {
+        stageDetail.textContent = activeMilestones.length
+          ? activeMilestones.map((milestone) => milestone.action || '按时间轴完成当前行动').join('；')
+          : '查看时间轴确认最近的官方节点';
+        if (reviewPending) stageDetail.textContent += '；审核通过后在时间轴勾选完成，补交不得超过报考点公布的期限';
+      }
+      if (nextName) nextName.textContent = nextMilestone?.label || '本周期已无后续节点';
+      if (nextDays) {
+        nextDays.textContent = Number.isFinite(state.daysToNext)
+          ? `${state.daysToNext} 天`
+          : '—';
+      }
     }
-    if (nextName) nextName.textContent = nextMilestone?.label || '本周期已无后续节点';
-    if (nextDays) {
-      nextDays.textContent = Number.isFinite(state.daysToNext)
-        ? `${state.daysToNext} 天`
-        : '—';
-    }
-
     const checkboxes = Array.from(document.querySelectorAll('.task-check[data-check-id]'));
+    const skipButtons = Array.from(document.querySelectorAll('[data-skip-check]'));
     let progressStorage = null;
     try {
       progressStorage = window.localStorage;
@@ -832,6 +1019,7 @@
 
     function renderProgress() {
       const { completed, total, percent } = countChecklistProgress(checklistState);
+      renderCurrentStage(checklistState);
       const bar = document.querySelector('#progress-bar');
       const text = document.querySelector('#progress-text');
       const count = document.querySelector('#progress-count');
@@ -841,9 +1029,19 @@
         bar.parentElement?.setAttribute('aria-valuenow', String(percent));
       }
       if (text) text.textContent = `${percent}%`;
-      if (count) count.textContent = `${completed} / ${total} 项`;
+      const skipped = CHECKLIST_IDS.length - total;
+      if (count) count.textContent = `${completed} / ${total} 项${skipped ? `（${skipped} 项不适用）` : ''}`;
       checkboxes.forEach((checkbox) => {
-        checkbox.closest('label')?.setAttribute('data-print-state', checkbox.checked ? '已完成' : '未完成');
+        const value = checklistState[checkbox.dataset.checkId];
+        checkbox.checked = value === true;
+        checkbox.disabled = value === 'na';
+        checkbox.closest('label')?.setAttribute('data-print-state', value === 'na' ? '不适用' : checkbox.checked ? '已完成' : '未完成');
+      });
+      skipButtons.forEach((button) => {
+        const skipped = checklistState[button.dataset.skipCheck] === 'na';
+        button.hidden = false;
+        button.setAttribute('aria-pressed', String(skipped));
+        button.textContent = skipped ? '已设为不适用 · 恢复此项' : '此项不适用';
       });
     }
 
@@ -870,8 +1068,17 @@
       renderProgress();
     }
 
-    checkboxes.forEach((checkbox) => checkbox.addEventListener('change', () => persistChecks()));
+    checkboxes.forEach((checkbox) => checkbox.addEventListener('change', () => persistChecks({
+      [checkbox.dataset.checkId]: checkbox.checked
+    })));
+    skipButtons.forEach((button) => button.addEventListener('click', () => {
+      const id = button.dataset.skipCheck;
+      if (optionalChecklistIds.has(id)) persistChecks({ [id]: checklistState[id] === 'na' ? false : 'na' });
+    }));
     renderProgress();
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState !== 'hidden') renderCurrentStage(checklistState);
+    });
 
     if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
       window.addEventListener('storage', (event) => {
@@ -889,7 +1096,7 @@
     resetButton?.addEventListener('click', () => {
       const resetAll = resetButton.dataset.resetScope === 'all';
       const confirmation = resetAll
-        ? '确定清空全部 21 项已勾选进度吗？此操作无法撤销。'
+        ? '确定清空全部 21 项任务状态（含不适用状态）吗？此操作无法撤销。'
         : '确定清空本页所有已勾选进度吗？此操作无法撤销。';
       if (!window.confirm(confirmation)) return;
       checkboxes.forEach((checkbox) => { checkbox.checked = false; });

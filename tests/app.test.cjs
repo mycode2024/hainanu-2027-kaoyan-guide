@@ -150,6 +150,8 @@ function installFakePage(options = {}) {
     storageWarning: createFakeElement({ hidden: true }),
     updateAll: createFakeElement({ dataset: { updatesFilter: 'all' } }),
     updateNew: createFakeElement({ dataset: { updatesFilter: 'new' } }),
+    yearFilter: createFakeElement(),
+    categoryFilter: createFakeElement(),
     updatesList: createFakeElement({ dataset: { updateLimit: options.updateLimit, updatePageSize: options.pageSize } }),
     previous: createFakeElement(),
     next: createFakeElement(),
@@ -181,6 +183,8 @@ function installFakePage(options = {}) {
     ['#updates-previous', elements.previous],
     ['#updates-next', elements.next],
     ['#updates-page-status', elements.pageStatus],
+    ['#updates-year', elements.yearFilter],
+    ['#updates-category', elements.categoryFilter],
     ['#current-stage-detail', elements.stageDetail],
     ['#current-stage-name', elements.stageName],
     ['#next-stage-days', elements.nextDays],
@@ -199,6 +203,7 @@ function installFakePage(options = {}) {
   const selectorGroups = new Map([
     ['[data-milestone-id]', options.milestones || []],
     ['.task-check[data-check-id]', checkboxes],
+    ['[data-skip-check]', options.skipButtons || []],
     ['[data-filter]', []],
     ['[data-print]', []],
     ['.section-nav a', options.sectionNavLinks || []],
@@ -408,7 +413,7 @@ test('resets all registered checklist state only when the reset scope is all', a
     includeLiveConsole: false, resetScope: 'all', storage
   }, async (page) => {
     page.elements.reset.dispatch('click');
-    assert.equal(confirmations[0], '确定清空全部 21 项已勾选进度吗？此操作无法撤销。');
+    assert.equal(confirmations[0], '确定清空全部 21 项任务状态（含不适用状态）吗？此操作无法撤销。');
     assert.equal(checkbox.checked, false);
     assert.equal(page.elements.progressCount.textContent, '0 / 21 项');
     assert.equal(JSON.parse(storage.value)['program-academic'], false);
@@ -452,12 +457,12 @@ test('returns every overlapping active milestone in chronological order', () => 
 test('home countdown follows the published 2027 registration dates', async () => {
   for (const [today, active, next, days] of [
     ['2026-10-08', '等待下一节点', '网上预报名', '1 天'],
-    ['2026-10-09', '网上预报名', '全国网上报名', '6 天'],
-    ['2026-10-12', '网上预报名', '全国网上报名', '3 天'],
-    ['2026-10-13', '等待下一节点', '全国网上报名', '2 天'],
-    ['2026-10-15', '全国网上报名', '下载准考证', '56 天'],
-    ['2026-10-24', '全国网上报名', '下载准考证', '47 天'],
-    ['2026-10-28', '等待下一节点', '下载准考证', '43 天']
+    ['2026-10-09', '网上预报名 / 材料核验与补交', '全国网上报名', '6 天'],
+    ['2026-10-12', '网上预报名 / 材料核验与补交', '全国网上报名', '3 天'],
+    ['2026-10-13', '材料核验与补交', '全国网上报名', '2 天'],
+    ['2026-10-15', '全国网上报名 / 材料核验与补交', '下载准考证', '56 天'],
+    ['2026-10-24', '全国网上报名 / 材料核验与补交', '下载准考证', '47 天'],
+    ['2026-10-28', '材料核验与补交', '下载准考证', '43 天']
   ]) {
     await withFakePage({ today, includeLiveConsole: false }, ({ elements }) => {
       assert.equal(elements.stageName.textContent, active, today);
@@ -465,6 +470,111 @@ test('home countdown follows the published 2027 registration dates', async () =>
       assert.equal(elements.nextDays.textContent, days, today);
     });
   }
+});
+
+test('keeps uncompleted material review visible after registration and clears it on completion', async () => {
+  const checkbox = createFakeElement({ dataset: { checkId: 'stage-confirm' } });
+  await withFakePage({ includeLiveConsole: false, today: '2026-10-25', checkboxes: [checkbox] }, async (page) => {
+    assert.match(page.elements.stageName.textContent, /材料核验与补交/);
+    assert.match(page.elements.stageDetail.textContent, /报考点/);
+    checkbox.checked = true;
+    checkbox.dispatch('change');
+    assert.doesNotMatch(page.elements.stageName.textContent, /材料核验与补交/);
+  });
+});
+
+test('includes consultation during its published window and removes it afterward', async () => {
+  await withFakePage({ includeLiveConsole: false, today: '2026-09-26' }, async (page) => {
+    assert.match(page.elements.stageName.textContent, /研招咨询/);
+  });
+  await withFakePage({ includeLiveConsole: false, today: '2026-09-30' }, async (page) => {
+    assert.doesNotMatch(page.elements.stageName.textContent, /研招咨询/);
+  });
+});
+
+test('does not silently dismiss an unfinished review after the exam', async () => {
+  await withFakePage({ includeLiveConsole: false, today: '2026-12-21' }, async (page) => {
+    assert.match(page.elements.stageName.textContent, /材料核验与补交/);
+    assert.match(page.elements.stageDetail.textContent, /不得超过/);
+  });
+});
+
+test('preserves legacy checks and excludes inapplicable tasks from the denominator', () => {
+  const { safeReadChecks, mergeChecklistState, countChecklistProgress } = loadApp();
+  const stored = safeReadChecks({ getItem: () => '{"material-id":true,"material-special":"na","stage-preapply":"na","unknown":"na"}' }, 'progress');
+  const state = mergeChecklistState(stored, { 'stage-apply': true });
+  assert.equal(state['material-special'], 'na');
+  assert.equal(state.unknown, undefined);
+  assert.deepEqual(countChecklistProgress(state), { completed: 2, total: 19, percent: 11 });
+  assert.deepEqual(countChecklistProgress(mergeChecklistState(state, { 'material-special': false })), { completed: 2, total: 20, percent: 10 });
+});
+
+test('skip controls persist across navigation, print honestly, restore and reset', async () => {
+  const storage = { values: new Map(), getItem(key) { return this.values.get(key); }, setItem(key, value) { this.values.set(key, value); } };
+  const label = createFakeElement();
+  const checkbox = createFakeElement({ dataset: { checkId: 'material-special' } });
+  checkbox.label = label;
+  const button = createFakeElement({ dataset: { skipCheck: 'material-special' } });
+  const options = { includeLiveConsole: false, storage, checkboxes: [checkbox], skipButtons: [button], resetScope: 'all' };
+  await withFakePage(options, async (page) => {
+    button.dispatch('click');
+    assert.equal(checkbox.disabled, true);
+    assert.equal(label.getAttribute('data-print-state'), '不适用');
+    assert.equal(page.elements.progressCount.textContent, '0 / 20 项（1 项不适用）');
+  });
+  await withFakePage(options, async (page) => {
+    assert.equal(checkbox.disabled, true);
+    assert.equal(button.getAttribute('aria-pressed'), 'true');
+    button.dispatch('click');
+    assert.equal(checkbox.disabled, false);
+    assert.equal(page.elements.progressCount.textContent, '0 / 21 项');
+    button.dispatch('click');
+    page.elements.reset.dispatch('click');
+    assert.equal(button.getAttribute('aria-pressed'), 'false');
+    assert.equal(checkbox.disabled, false);
+  });
+});
+
+test('changing year and category resets pagination and retains filters on refresh', async () => {
+  const snapshot = makeUpdatesPayload();
+  snapshot.updates = Array.from({ length: 10 }, (_, i) => ({
+    ...snapshot.updates[0], id: `filter-${i}`, title: `${i < 2 ? '2027' : '2026'} 年报名公告`,
+    category: '报名确认', url: `https://gs.hainanu.edu.cn/info/filter-${i}.htm`
+  }));
+  await withFakePage({ pageSize: '8' }, async (page) => {
+    page.settle(page.fetchCalls[0], snapshot);
+    await page.flush();
+    page.elements.next.dispatch('click');
+    assert.match(page.elements.pageStatus.textContent, /2 \/ 2/);
+    page.elements.yearFilter.value = '2027';
+    page.elements.yearFilter.dispatch('change');
+    assert.match(page.elements.pageStatus.textContent, /1 \/ 1.*2 条/);
+    page.elements.categoryFilter.value = '简章目录';
+    page.elements.categoryFilter.dispatch('change');
+    assert.match(collectText(page.elements.updatesList), /没有符合筛选条件/);
+    page.elements.refresh.dispatch('click');
+    page.settle(page.fetchCalls[1], snapshot);
+    await page.flush();
+    assert.match(page.elements.pageStatus.textContent, /0 条/);
+    page.elements.categoryFilter.value = 'all';
+    page.elements.categoryFilter.dispatch('change');
+    assert.match(page.elements.pageStatus.textContent, /2 条/);
+  });
+});
+
+test('combines unread, admission year and category without inferring year from publication date', () => {
+  const { selectUpdatesForDisplay } = loadApp();
+  const updates = [
+    { id: 'a', title: '2027 年报名公告', category: '报名确认' },
+    { id: 'b', title: '2026 年报名公告', category: '报名确认' },
+    { id: 'c', title: '报名公告', date: '2026-09-26', category: '报名确认' },
+    { id: 'd', title: '2027 年招生目录', category: '简章目录' },
+    { id: 'e', title: '2026 年与 2027 年报名安排', category: '报名确认' }
+  ];
+  const unseen = new Set(['a', 'b', 'c', 'd', 'e']);
+  assert.deepEqual(selectUpdatesForDisplay(updates, unseen, new Set(['a']), 'new', { year: '2027', category: '报名确认' }).updates.map(x => x.id), ['e']);
+  assert.deepEqual(selectUpdatesForDisplay(updates, unseen, new Set(), 'all', { year: 'history' }).updates.map(x => x.id), ['b']);
+  assert.deepEqual(selectUpdatesForDisplay(updates, unseen, new Set(), 'all', { year: 'unknown' }).updates.map(x => x.id), ['c']);
 });
 
 test('treats both milestone boundary dates as active', () => {

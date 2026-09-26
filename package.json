@@ -6,10 +6,11 @@
   "main": "server.cjs",
   "scripts": {
     "start": "node server.cjs",
-    "test": "node --test tests/admissions-statistics.test.cjs tests/app.test.cjs tests/notice-dates.test.cjs tests/official-scraper.test.cjs tests/server.test.cjs tests/smoke.test.cjs tests/styles.test.cjs tests/update-service.test.cjs tests/vercel.test.cjs",
+    "test": "node --test tests/admissions-statistics.test.cjs tests/app.test.cjs tests/content-reviews.test.cjs tests/notice-dates.test.cjs tests/official-scraper.test.cjs tests/server.test.cjs tests/smoke.test.cjs tests/styles.test.cjs tests/update-service.test.cjs tests/vercel.test.cjs",
     "check": "node --check server.cjs && node --check app.js && node --check src/http-app.cjs && node --check src/official-scraper.cjs && node --check src/update-service.cjs && node --check api/index.js && node --check src/vercel-app.cjs && node --check scripts/build-vercel.cjs && npm test",
     "build:vercel": "node scripts/build-vercel.cjs",
-    "build:scores": "node scripts/build-admissions-section.cjs"
+    "build:scores": "node scripts/build-admissions-section.cjs && node scripts/build-content-reviews.cjs",
+    "build:reviews": "node scripts/build-content-reviews.cjs"
   },
   "engines": {
     "node": ">=18.0.0"
