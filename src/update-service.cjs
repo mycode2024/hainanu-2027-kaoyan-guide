@@ -2,6 +2,7 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const {
   isAllowedOfficialUrl,
+  isRelevantAdmissionCycle,
   parseOfficialDocument,
   parseOfficialPublicationDate,
   makeContentHash
@@ -53,6 +54,12 @@ function makeSeedSnapshot(sources, refreshIntervalMs, date) {
 
 function isValidIsoDate(value) {
   return typeof value === 'string' && Number.isFinite(Date.parse(value));
+}
+
+function isValidPublicationDate(value) {
+  if (typeof value !== 'string' || !/^20\d{2}-\d{2}-\d{2}$/.test(value)) return false;
+  const timestamp = Date.parse(`${value}T00:00:00Z`);
+  return Number.isFinite(timestamp) && new Date(timestamp).toISOString().slice(0, 10) === value;
 }
 
 function isCacheSnapshotShape(value) {
@@ -113,7 +120,7 @@ function sanitizeCachedSnapshot(value, sources, refreshIntervalMs, date) {
     .filter((update) => sourceById.get(update.sourceId)?.context !== 'hnu-home' || update.dateVerified === true)
     .map((update) => {
       const publicationDate = typeof update.date === 'string' ? update.date.trim() : '';
-      const publicationFallback = /^20\d{2}-\d{2}-\d{2}$/.test(publicationDate)
+      const publicationFallback = isValidPublicationDate(publicationDate)
         ? `${publicationDate}T00:00:00.000Z`
         : seed.fetchedAt;
       return {
@@ -136,7 +143,7 @@ function sanitizeCachedSnapshot(value, sources, refreshIntervalMs, date) {
       };
     })
     .filter((update) => (
-      update.id && update.title && /^20\d{2}-\d{2}-\d{2}$/.test(update.date) &&
+      update.id && update.title && isValidPublicationDate(update.date) &&
       update.source && allowedSourceIds.has(update.sourceId) &&
       isAllowedOfficialUrl(update.url, sourceById.get(update.sourceId)) &&
       !isStaleAdmissionUpdate(update, seed.fetchedAt)
@@ -539,7 +546,7 @@ function createUpdateService(options = {}) {
       }
       const html = await readOfficialHtml(source.url);
       const parsed = parseDocument(html, source, checkedAt);
-      const updates = Array.isArray(parsed?.updates) ? parsed.updates : null;
+      let updates = Array.isArray(parsed?.updates) ? parsed.updates : null;
       attemptedDiagnostics = sanitizeParserDiagnostics(parsed?.diagnostics, updates?.length);
       if (!updates || !attemptedDiagnostics) {
         return {
@@ -577,6 +584,17 @@ function createUpdateService(options = {}) {
       }));
       const failedVerification = verifications.find((result) => result.status === 'rejected');
       if (failedVerification) throw failedVerification.reason;
+      // Apply the same age rules to verified article dates as to dated lists.
+      const inferredIds = new Set(pending.map((update) => update.id));
+      updates = updates.filter((update) => !inferredIds.has(update.id)
+        || isRelevantAdmissionCycle(update.title, update.date, checkedAt));
+      attemptedDiagnostics = { ...attemptedDiagnostics, relevantCount: updates.length };
+      if (updates.length === 0) {
+        const error = new Error('未识别到招生通知，可能是官网页面结构已变化');
+        error.retryable = true;
+        error.diagnostics = attemptedDiagnostics;
+        throw error;
+      }
       const diagnosticDriftReason = detectDiagnosticDrift(priorDiagnostics, attemptedDiagnostics);
       if (diagnosticDriftReason) {
         return {

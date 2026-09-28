@@ -1,4 +1,7 @@
 const crypto = require('node:crypto');
+const SHANGHAI_DATE_FORMAT = new Intl.DateTimeFormat('en-US', {
+  timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit'
+});
 
 const ENTITY_MAP = {
   amp: '&',
@@ -59,24 +62,22 @@ function categorizeTitle(title, source) {
   if (/招生简章|招生章程|专业目录|考试大纲/.test(title)) return '简章目录';
   if (/网上报名|预报名|报名公告|网上确认|报考点/.test(title)) return '报名确认';
   if (/准考资格|报考材料|准考证/.test(title)) return '资格准考';
+  const recommendedAdmissionText = title
+    .replace(/(?:不含|不包括|不包含|非|除)\s*(?:推免|推荐免试)/g, '')
+    .replace(/(?:推免|推荐免试)(?:研究生|生)?\s*除外/g, '');
+  if (/推免|推荐免试/.test(recommendedAdmissionText)) return '推免';
   if (/成绩|分数线|排名查询/.test(title)) return '成绩分数线';
   if (/复试|调剂|拟录取|录取/.test(title)) return '复试录取';
-  if (/推免|推荐免试/.test(title)) return '推免';
   return '招生动态';
 }
 
-function isRelevantAdmissionCycle(title, date, checkedAt) {
+function isRelevantAdmissionCycle(title, date, checkedAt, calendar = getShanghaiYearAndMonth(checkedAt)) {
   if (/2027\s*(?:年|级)/.test(title)) return true;
   const titleYear = title.match(/(?:20\d{2})年?/);
   const pubYear = date ? Number(date.slice(0, 4)) : null;
   const checkedDate = new Date(checkedAt);
-  const shanghaiValues = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'Asia/Shanghai',
-    year: 'numeric',
-    month: '2-digit'
-  }).formatToParts(checkedDate);
-  const currentYear = Number(shanghaiValues.find((p) => p.type === 'year')?.value);
-  const currentMonth = Number(shanghaiValues.find((p) => p.type === 'month')?.value);
+  const currentYear = calendar?.year;
+  const currentMonth = calendar?.month;
   if (!Number.isFinite(currentYear)) return true;
   // The target admission year: current year + 1 (e.g., in 2026 we target 2027 cycle)
   const targetYear = currentYear + 1;
@@ -145,12 +146,7 @@ function isValidCalendarDate(year, month, day) {
 function getShanghaiYearAndMonth(checkedAt) {
   const checkedDate = new Date(checkedAt);
   if (!Number.isFinite(checkedDate.getTime())) return null;
-  const values = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'Asia/Shanghai',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit'
-  }).formatToParts(checkedDate);
+  const values = SHANGHAI_DATE_FORMAT.formatToParts(checkedDate);
   const year = Number(values.find((part) => part.type === 'year')?.value);
   const month = Number(values.find((part) => part.type === 'month')?.value);
   const day = Number(values.find((part) => part.type === 'day')?.value);
@@ -299,8 +295,20 @@ function extractVisibleText(content) {
   return cleanText(maskNonVisibleRegions(content));
 }
 
-function extractPublicationDate(content, checkedAt) {
-  const visibleText = extractVisibleText(content);
+function findPublicationLabels(content) {
+  const labels = [...content.matchAll(/<time\b[^>]*>[\s\S]*?<\/time>/gi)];
+  for (const label of content.matchAll(/<span\b([^>]*)>[\s\S]*?<\/span>/gi)) {
+    const className = label[1].match(/\bclass\s*=\s*(["'])(.*?)\1/i)?.[2] || '';
+    if (/(?:^|[\s_-])(?:date|pubdate|time)(?:$|[\s_-])/i.test(className)) labels.push(label);
+  }
+  return labels.sort((a, b) => a.index - b.index);
+}
+
+function extractPublicationDate(visibleContent, checkedDate) {
+  // Link text may contain an exam/deadline date; it is not a publication label.
+  // Clickable cards can still contain explicit time/date elements.
+  const visibleText = cleanText(visibleContent.replace(/<a\b[^>]*>[\s\S]*?<\/a>/gi,
+    (link) => findPublicationLabels(link).map((label) => label[0]).join(' ')));
   const dateCandidates = [];
 
   for (const match of visibleText.matchAll(/\b(20\d{2})-((?:0[1-9]|1[0-2]))-((?:0[1-9]|[12]\d|3[01]))\b/g)) {
@@ -309,11 +317,11 @@ function extractPublicationDate(content, checkedAt) {
       year: Number(match[1]),
       month: Number(match[2]),
       day: Number(match[3]),
-      value: `${match[1]}-${match[2]}-${match[3]}`
+      value: `${match[1]}-${match[2]}-${match[3]}`,
+      inferred: false
     });
   }
 
-  const checkedDate = getShanghaiYearAndMonth(checkedAt);
   if (checkedDate) {
     for (const match of visibleText.matchAll(/\[\s*((?:0[1-9]|1[0-2]))-((?:0[1-9]|[12]\d|3[01]))\s*\]/g)) {
       const month = Number(match[1]);
@@ -323,14 +331,15 @@ function extractPublicationDate(content, checkedAt) {
         year,
         month,
         day: Number(match[2]),
-        value: `${year}-${match[1]}-${match[2]}`
+        value: `${year}-${match[1]}-${match[2]}`,
+        inferred: true
       });
     }
   }
 
   return dateCandidates
     .sort((a, b) => a.index - b.index)
-    .find((candidate) => isValidCalendarDate(candidate.year, candidate.month, candidate.day))?.value ?? null;
+    .find((candidate) => isValidCalendarDate(candidate.year, candidate.month, candidate.day)) ?? null;
 }
 
 // Only publication metadata or the publisher's dated byline may establish a year.
@@ -355,9 +364,7 @@ function parseOfficialPublicationDate(html) {
   return null;
 }
 
-function findBalancedElements(html, type) {
-  const document = String(html || '');
-  const scanDocument = maskNonVisibleRegions(document);
+function findBalancedElements(scanDocument, type) {
   const tagPattern = new RegExp(`<\\/?${type}\\b[^>]*>`, 'gi');
   const openElements = [];
   const elements = [];
@@ -371,7 +378,7 @@ function findBalancedElements(html, type) {
         type,
         start: opening.start,
         end: tagPattern.lastIndex,
-        content: document.slice(opening.start, tagPattern.lastIndex)
+        content: scanDocument.slice(opening.start, tagPattern.lastIndex)
       });
     } else if (!/\/\s*>$/.test(tag[0])) {
       openElements.push({ start: tag.index });
@@ -381,34 +388,41 @@ function findBalancedElements(html, type) {
   return elements;
 }
 
-function extractAnchors(content) {
-  return [...maskNonVisibleRegions(content).matchAll(/<a\b[^>]*\bhref\s*=\s*(["'])(.*?)\1[^>]*>([\s\S]*?)<\/a>/gi)]
+function extractAnchors(visibleContent) {
+  return [...visibleContent.matchAll(/<a\b[^>]*\bhref\s*=\s*(["'])(.*?)\1[^>]*>([\s\S]*?)<\/a>/gi)]
     .map((match) => ({ href: match[2], titleHtml: match[3] }));
 }
 
-function extractAnnouncementCards(html, checkedAt) {
+function extractAnnouncementCards(html, calendar) {
+  // Preserve offsets while masking once for the entire document.
+  const visibleHtml = maskNonVisibleRegions(html);
   const elements = ['li', 'div']
-    .flatMap((type) => findBalancedElements(html, type))
+    .flatMap((type) => findBalancedElements(visibleHtml, type))
     .sort((a, b) => a.start - b.start || b.end - a.end);
   const candidates = elements
     .map((element) => {
       const anchors = extractAnchors(element.content);
       if (anchors.length !== 1) return null;
-      const date = extractPublicationDate(element.content, checkedAt);
-      const dateInferred = !/\b20\d{2}-\d{2}-\d{2}\b/.test(extractVisibleText(element.content));
-      return date ? { ...element, anchor: anchors[0], date, dateInferred } : null;
+      const date = extractPublicationDate(element.content, calendar);
+      return date ? { ...element, anchor: anchors[0], date: date.value, dateInferred: date.inferred } : null;
     })
     .filter(Boolean);
 
-  return candidates
-    .filter((candidate) => !candidates.some((other) => other !== candidate
-      && other.start >= candidate.start
-      && other.end <= candidate.end))
-    .sort((a, b) => a.start - b.start || a.end - b.end);
+  // Ordered starts mean any later candidate ending inside this one is a child.
+  // A reverse scan selects the innermost cards without an all-pairs search.
+  const cards = [];
+  let earliestEnd = Infinity;
+  for (let index = candidates.length - 1; index >= 0; index -= 1) {
+    const candidate = candidates[index];
+    if (candidate.end < earliestEnd) cards.push(candidate);
+    earliestEnd = Math.min(earliestEnd, candidate.end);
+  }
+  return cards.reverse();
 }
 
 function parseOfficialDocument(html, source, checkedAt = new Date().toISOString()) {
-  const candidates = extractAnnouncementCards(html, checkedAt);
+  const calendar = getShanghaiYearAndMonth(checkedAt);
+  const candidates = extractAnnouncementCards(html, calendar);
   const diagnostics = {
     candidateCount: candidates.length,
     relevantCount: 0,
@@ -419,9 +433,19 @@ function parseOfficialDocument(html, source, checkedAt = new Date().toISOString(
   const updatesById = new Map();
 
   for (const candidate of candidates) {
-    const title = cleanText(candidate.anchor.titleHtml);
+    let titleHtml = candidate.anchor.titleHtml;
+    const publicationLabels = findPublicationLabels(titleHtml);
+    if (publicationLabels.length) {
+      const titleContent = titleHtml.split('');
+      for (const label of publicationLabels) {
+        maskRange(titleContent, label.index, label.index + label[0].length);
+      }
+      titleHtml = titleContent.join('');
+    }
+    const title = cleanText(titleHtml);
     if (!isRelevantTitle(title, source)) continue;
-    if (!isRelevantAdmissionCycle(title, candidate.date, checkedAt)) continue;
+    // A guessed year must not discard a notice before the article is checked.
+    if (!isRelevantAdmissionCycle(title, candidate.dateInferred ? null : candidate.date, checkedAt, calendar)) continue;
 
     let url;
     try {

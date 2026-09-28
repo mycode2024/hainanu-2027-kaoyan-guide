@@ -10,7 +10,8 @@
     "check": "node --check server.cjs && node --check app.js && node --check src/http-app.cjs && node --check src/official-scraper.cjs && node --check src/update-service.cjs && node --check api/index.js && node --check src/vercel-app.cjs && node --check scripts/build-vercel.cjs && npm test",
     "build:vercel": "node scripts/build-vercel.cjs",
     "build:scores": "node scripts/build-admissions-section.cjs && node scripts/build-content-reviews.cjs",
-    "build:reviews": "node scripts/build-content-reviews.cjs"
+    "build:reviews": "node scripts/build-content-reviews.cjs",
+    "bench:scraper": "node scripts/benchmark-scraper.cjs"
   },
   "engines": {
     "node": ">=18.0.0"

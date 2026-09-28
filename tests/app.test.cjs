@@ -1,6 +1,48 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
+test('rejects impossible publication dates and excludes them from new-notice counts', () => {
+  const { normalizeUpdatesPayload } = loadApp();
+  const dates = ['2026-02-30', '2026-02-29', '2026-04-31', '2026-00-10', '2026-13-01', '2028-02-29', '2026-09-27'];
+  const updates = dates.map(date => ({ id: date, title: '2027年硕士研究生招生公告', date,
+    url: `https://gs.hainanu.edu.cn/info/${date}.htm`, source: '研究生院', sourceId: 'graduate' }));
+  const result = normalizeUpdatesPayload({ updates, change: { newIds: dates } });
+  assert.deepEqual(result.updates.map(item => item.date), ['2028-02-29', '2026-09-27']);
+  assert.deepEqual(result.change.newIds, ['2028-02-29', '2026-09-27']);
+  assert.equal(result.change.newCount, 2);
+});
+
+test('local manual sync waits through the backend retry budget without a false disconnect', async () => {
+  await withFakePage({}, async page => {
+    page.settle(page.fetchCalls[0]);
+    await page.flush();
+    page.elements.refresh.dispatch('click');
+    const manual = page.fetchCalls[1];
+    assert.equal(manual.request.method, 'POST');
+    page.runTimers(8_000);
+    await page.flush();
+    assert.equal(manual.aborted, false);
+    assert.equal(page.elements.refresh.disabled, true);
+    page.settle(manual);
+    await page.flush();
+    assert.equal(page.elements.console.dataset.state, 'fresh');
+    assert.equal(page.elements.refresh.disabled, false);
+  });
+});
+
+test('local manual sync still aborts and restores controls when its longer deadline expires', async () => {
+  await withFakePage({}, async page => {
+    page.settle(page.fetchCalls[0]);
+    await page.flush();
+    page.elements.refresh.dispatch('click');
+    page.runTimers(40_000);
+    await page.flush();
+    assert.equal(page.fetchCalls[1].aborted, true);
+    assert.equal(page.elements.refresh.disabled, false);
+    assert.equal(page.elements.console.dataset.state, 'offline');
+  });
+});
+
 function loadApp() {
   try {
     delete require.cache[require.resolve('../app.js')];

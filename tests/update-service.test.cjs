@@ -4,6 +4,17 @@ const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
 
+test('cache restoration rejects impossible dates while retaining valid leap days', async () => {
+  const { createUpdateService } = loadService();
+  const dates = ['2026-02-30', '2026-02-29', '2026-04-31', '2026-00-10', '2026-13-01', '2024-02-29', '2026-09-27'];
+  const updates = dates.map(date => ({ id: date, title: '2027年硕士研究生招生公告', date,
+    url: `https://gs.hainanu.edu.cn/info/${date}.htm`, source: sources[0].name, sourceId: sources[0].id }));
+  const service = createUpdateService({ sources: [sources[0]],
+    cacheStore: createMemoryStore({ updates }), now: () => new Date('2026-09-27T04:00:00Z') });
+  await service.initialize();
+  assert.deepEqual(service.getSnapshot().updates.map(item => item.date), ['2026-09-27', '2024-02-29']);
+});
+
 function loadService() {
   try {
     delete require.cache[require.resolve('../src/update-service.cjs')];

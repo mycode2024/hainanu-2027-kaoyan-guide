@@ -6,6 +6,46 @@ const { createUpdateService } = require('../src/update-service.cjs');
 const homepage = { id: 'hnu-graduate-home', name: '研究生院首页', url: 'https://gs.hainanu.edu.cn/', context: 'hnu-home', allowedHosts: ['hainanu.edu.cn'] };
 const reply = (url, html) => ({ ok: true, status: 200, url, headers: new Headers({ 'content-type': 'text/html' }), text: async () => html });
 
+test('does not discard a yearless operational notice before verifying its actual year', async () => {
+  const service = createUpdateService({
+    sources: [{ ...homepage, context: 'hnu-master' }], now: () => new Date('2026-09-27T04:00:00Z'),
+    retryDelayMs: 0, delayImpl: async () => {},
+    fetchImpl: async url => reply(url, url === homepage.url
+      ? '<li><a href="info/current.htm">硕士研究生复试安排</a><span>[10-01]</span></li>'
+      : '<meta name="PubDate" content="2026-09-26">')
+  });
+  const result = await service.refresh();
+  assert.equal(result.sources[0].ok, true);
+  assert.deepEqual(result.updates.map(item => item.date), ['2026-09-26']);
+});
+
+test('rechecks operational notice age after verifying the publication year', async () => {
+  const service = createUpdateService({
+    sources: [{ ...homepage, context: 'hnu-master' }], now: () => new Date('2026-09-27T04:00:00Z'),
+    fetchImpl: async url => reply(url, url === homepage.url
+      ? '<li><a href="info/old.htm">硕士研究生复试安排</a><span>[09-20]</span></li><li><a href="info/current.htm">2027年硕士研究生招生简章</a><time>2026-09-25</time></li>'
+      : '<meta name="PubDate" content="2025-09-20">')
+  });
+  const result = await service.refresh();
+  assert.equal(result.sources[0].ok, true);
+  assert.deepEqual(result.updates.map(item => item.url), ['https://gs.hainanu.edu.cn/info/current.htm']);
+  assert.equal(result.sources[0].diagnostics.relevantCount, 1);
+});
+
+test('does not report a successful source when verified dates filter out every notice', async () => {
+  const service = createUpdateService({
+    sources: [{ ...homepage, context: 'hnu-master' }], now: () => new Date('2026-09-27T04:00:00Z'),
+    delayImpl: async () => {},
+    fetchImpl: async url => reply(url, url === homepage.url
+      ? '<li><a href="info/old.htm">硕士研究生复试安排</a><span>[09-20]</span></li>'
+      : '<meta name="PubDate" content="2025-09-20">')
+  });
+  const result = await service.refresh();
+  assert.equal(result.sources[0].ok, false);
+  assert.equal(result.sources[0].lastSuccessAt, null);
+  assert.deepEqual(result.updates, []);
+});
+
 test('includes current recommended-admission rules and retained target-year contact notices', async () => {
   const source = { ...homepage, id: 'hnu-graduate', context: 'hnu-master' };
   const html = '<li><a href="info/1024/8992.htm">海南大学2027年各学院接收推荐免试研究生（含直博生）工作实施细则</a><time>2026-09-20</time></li>' +

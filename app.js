@@ -121,6 +121,11 @@
     const validIso = (candidate) => typeof candidate === 'string' && Number.isFinite(Date.parse(candidate));
     const text = (candidate) => typeof candidate === 'string' ? candidate.trim() : '';
     const freshnessStates = new Set(['fresh', 'aging', 'overdue', 'never']);
+    const validPublicationDate = (candidate) => {
+      if (!/^20\d{2}-\d{2}-\d{2}$/.test(candidate)) return false;
+      const timestamp = toUtcDay(candidate);
+      return Number.isFinite(timestamp) && new Date(timestamp).toISOString().slice(0, 10) === candidate;
+    };
 
     const sources = (Array.isArray(payload.sources) ? payload.sources : [])
       .filter((source) => source && typeof source === 'object')
@@ -155,7 +160,7 @@
         discoveredAt: validIso(update.discoveredAt) ? update.discoveredAt : null
       }))
       .filter((update) => (
-        update.id && update.title && /^20\d{2}-\d{2}-\d{2}$/.test(update.date) &&
+        update.id && update.title && validPublicationDate(update.date) &&
         update.source && update.sourceId && isSafeOfficialUpdateUrl(update.url)
       ))
       .slice(0, 120);
@@ -793,7 +798,10 @@
       requestInFlight = true;
       const controller = new AbortController();
       activeRequestController = controller;
-      const timeout = window.setTimeout(() => controller.abort(), isCloud ? 30_000 : 8_000);
+      // Local sync can use two 12s attempts plus up to 10s of Retry-After.
+      // Snapshot reads stay short; cloud attempts have a smaller server budget.
+      const timeoutMs = isCloud ? 30_000 : manual ? 40_000 : 8_000;
+      const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
       const showBusy = manual || !hasRenderedSnapshot;
       if (showBusy) {
         refreshButton.disabled = true;

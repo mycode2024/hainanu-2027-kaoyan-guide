@@ -23,6 +23,79 @@ const computerSource = {
   url: 'https://cs.hainanu.edu.cn/zsgz/yjszs.htm'
 };
 
+test('keeps publication labels out of titles and admission-year detection', () => {
+  const { parseOfficialList } = loadScraper();
+  const title = '2026年硕士研究生招生考试（2026-12-19）安排';
+  for (const label of ['<time>2025-09-20</time>', '<span class="notice-date">2025-09-20</span>']) {
+    const html = `<li><a href="info/9001.htm">${label}<span class="title">${title}</span></a></li>`;
+    const [update] = parseOfficialList(html, graduateSource, '2026-09-27T04:00:00Z');
+    assert.equal(update?.title, title, label);
+    assert.equal(update.date, '2025-09-20');
+  }
+});
+
+test('does not add publication text to target-year clickable card titles', () => {
+  const { parseOfficialList } = loadScraper();
+  const title = '2027年硕士研究生招生考试（2026-12-19）安排';
+  const html = `<li><a href="info/9001.htm"><span>${title}</span><time>2026-09-20</time></a></li>`;
+  const [update] = parseOfficialList(html, graduateSource, '2026-09-27T04:00:00Z');
+  assert.equal(update.title, title);
+  assert.equal(update.date, '2026-09-20');
+});
+
+test('classifies recommended-admission interviews and offers under recommended admission', () => {
+  const { parseOfficialList, categorizeTitle } = loadScraper();
+  for (const title of ['2027年推免硕士研究生复试录取办法', '2027年推荐免试硕士研究生拟录取公示']) {
+    const [update] = parseOfficialList(`<li><a href="info/9001.htm">${title}</a><time>2026-09-20</time></li>`, graduateSource, '2026-09-27T04:00:00Z');
+    assert.equal(update.category, '推免');
+  }
+  assert.equal(categorizeTitle('2027年硕士研究生复试录取办法', graduateSource), '复试录取');
+});
+
+test('keeps ordinary admissions notices out of recommended admission when it is explicitly excluded', () => {
+  const { categorizeTitle } = loadScraper();
+  for (const title of [
+    '2027年硕士研究生拟录取名单公示（不含推免生）',
+    '2027年非推免硕士研究生复试录取办法',
+    '2027年硕士研究生拟录取名单（不包括推荐免试研究生）',
+    '2027年硕士研究生复试安排（推免生除外）'
+  ]) assert.equal(categorizeTitle(title, graduateSource), '复试录取', title);
+});
+
+test('uses the publication label instead of an exam date in the linked title', () => {
+  const { parseOfficialList } = loadScraper();
+  const html = '<li><a href="info/9001.htm">2027年硕士研究生招生考试（2026-12-19）安排</a><time>2026-09-20</time></li>';
+  const [update] = parseOfficialList(html, graduateSource, '2026-09-27T04:00:00Z');
+  assert.equal(update.date, '2026-09-20');
+  assert.equal(update.dateInferred, undefined);
+});
+
+test('a full date in the title cannot verify a yearless publication label', () => {
+  const { parseOfficialList } = loadScraper();
+  const html = '<li><a href="info/9001.htm">2027年硕士研究生招生考试（2026-12-19）安排</a><span>[09-20]</span></li>';
+  const [update] = parseOfficialList(html, graduateSource, '2026-09-27T04:00:00Z');
+  assert.equal(update.date, '2026-09-20');
+  assert.equal(update.dateInferred, true);
+  assert.deepEqual(parseOfficialList('<li><a href="info/9001.htm">2027年硕士研究生招生考试（2026-12-19）安排</a></li>', graduateSource), []);
+});
+
+test('an impossible full date does not mark a fallback short date as verified', () => {
+  const { parseOfficialList } = loadScraper();
+  const [update] = parseOfficialList('<li><a href="info/9001.htm">2027年硕士研究生招生公告</a><time>2026-02-30</time><span>[09-20]</span></li>', graduateSource, '2026-09-27T04:00:00Z');
+  assert.equal(update.date, '2026-09-20');
+  assert.equal(update.dateInferred, true);
+});
+
+test('retains explicit publication labels inside a clickable notice card', () => {
+  const { parseOfficialList } = loadScraper();
+  for (const label of ['<time>2026-09-20</time>', '<span class="notice-date">2026-09-20</span>', '<span class="date">[09-20]</span>']) {
+    const html = `<li><a href="info/9001.htm"><span class="title">2027年硕士研究生招生考试（2026-12-19）安排</span>${label}</a></li>`;
+    const [update] = parseOfficialList(html, graduateSource, '2026-09-27T04:00:00Z');
+    assert.equal(update?.date, '2026-09-20', label);
+    assert.equal(update.dateInferred === true, label.includes('[09-20]'));
+  }
+});
+
 test('parses official list variants into safe absolute notice records', () => {
   const { parseOfficialList } = loadScraper();
   assert.equal(typeof parseOfficialList, 'function', 'parseOfficialList must be exported');
