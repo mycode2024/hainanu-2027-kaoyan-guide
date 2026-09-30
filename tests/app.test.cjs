@@ -172,7 +172,9 @@ function installFakePage(options = {}) {
   const fetchCalls = [];
   const intersectionObservers = [];
   const documentListeners = new Map();
+  const windowListeners = new Map();
   let timerId = 0;
+  let clockTime = options.today ? new originalDate(`${options.today}T12:00:00`).valueOf() : null;
 
   const elements = {
     acknowledge: createFakeElement(),
@@ -280,6 +282,13 @@ function installFakePage(options = {}) {
     querySelectorAll(selector) { return selectorGroups.get(selector) || []; }
   };
   const fakeWindow = {
+    addEventListener(type, listener) {
+      if (!windowListeners.has(type)) windowListeners.set(type, []);
+      windowListeners.get(type).push(listener);
+    },
+    dispatch(type, event = {}) {
+      (windowListeners.get(type) || []).forEach((listener) => listener({ type, ...event }));
+    },
     confirm(message) {
       return typeof options.confirm === 'function' ? options.confirm(message) : options.confirm !== false;
     },
@@ -302,7 +311,7 @@ function installFakePage(options = {}) {
     location: { protocol: 'http:' },
     clearTimeout(timer) { timer.cancelled = true; },
     setTimeout(callback, delay) {
-      const timer = { callback, cancelled: false, delay, id: ++timerId };
+      const timer = { callback, cancelled: false, delay, dueAt: Date.now() + delay, id: ++timerId };
       timers.push(timer);
       return timer;
     }
@@ -326,10 +335,9 @@ function installFakePage(options = {}) {
   global.document = fakeDocument;
   global.window = fakeWindow;
   if (options.today) {
-    const fixedTime = new originalDate(`${options.today}T12:00:00`).valueOf();
     global.Date = class FakeDate extends originalDate {
-      constructor(...args) { super(...(args.length ? args : [fixedTime])); }
-      static now() { return fixedTime; }
+      constructor(...args) { super(...(args.length ? args : [clockTime])); }
+      static now() { return clockTime; }
     };
   }
   delete require.cache[require.resolve('../app.js')];
@@ -338,6 +346,7 @@ function installFakePage(options = {}) {
   return {
     checkboxes,
     document: fakeDocument,
+    window: fakeWindow,
     elements,
     fetchCalls,
     intersectionObservers,
@@ -351,6 +360,14 @@ function installFakePage(options = {}) {
     },
     runTimers(delay) {
       timers.filter((timer) => !timer.cancelled && timer.delay === delay).forEach((timer) => {
+        timer.cancelled = true;
+        timer.callback();
+      });
+    },
+    advanceTime(milliseconds) {
+      if (clockTime === null) throw new Error('advanceTime requires a fixed test date');
+      clockTime += milliseconds;
+      timers.filter(timer => !timer.cancelled && timer.dueAt <= clockTime).forEach(timer => {
         timer.cancelled = true;
         timer.callback();
       });
@@ -379,11 +396,169 @@ async function withFakePage(options, assertion) {
   }
 }
 
+test('updates the stage and countdown across consecutive midnights without a notice service', async () => {
+  const preapply = createFakeElement({ dataset: { milestoneId: 'preapply' } });
+  await withFakePage({ today: '2026-10-08', includeLiveConsole: false, milestones: [preapply] }, async page => {
+    assert.equal(page.elements.nextDays.textContent, '1 天');
+    assert.equal(preapply.getAttribute('aria-current'), null);
+    page.advanceTime(12 * 60 * 60 * 1000);
+    assert.equal(page.elements.stageName.textContent, '网上预报名 / 材料核验与补交');
+    assert.equal(page.elements.nextName.textContent, '全国网上报名');
+    assert.equal(page.elements.nextDays.textContent, '6 天');
+    assert.equal(preapply.getAttribute('aria-current'), 'step');
+    page.advanceTime(24 * 60 * 60 * 1000);
+    assert.equal(page.elements.nextDays.textContent, '5 天');
+    assert.equal(page.fetchCalls.length, 0);
+  });
+});
+
+test('midnight stage refresh preserves session-only completed checklist tasks', async () => {
+  const storage = {
+    getItem() { throw new Error('blocked'); },
+    setItem() { throw new Error('blocked'); }
+  };
+  const checkbox = createFakeElement({ dataset: { checkId: 'stage-confirm' } });
+  await withFakePage({ today: '2026-10-08', includeLiveConsole: false, storage, checkboxes: [checkbox] }, async page => {
+    checkbox.checked = true;
+    checkbox.dispatch('change');
+    page.advanceTime(12 * 60 * 60 * 1000);
+    assert.equal(page.elements.stageName.textContent, '网上预报名');
+    assert.equal(checkbox.checked, true);
+    assert.equal(page.elements.progressCount.textContent, '1 / 21 项');
+    assert.equal(page.elements.storageWarning.hidden, false);
+  });
+});
+
+for (const resumeEvent of ['pageshow', 'visibilitychange']) {
+  test(`resuming via ${resumeEvent} recalibrates the next midnight refresh`, async () => {
+    await withFakePage({ today: '2026-10-08', includeLiveConsole: false }, async page => {
+      page.document.visibilityState = 'hidden';
+      page.document.dispatch('visibilitychange');
+      page.window.dispatch('pagehide');
+      page.advanceTime(36 * 60 * 60 * 1000);
+      page.document.visibilityState = 'visible';
+      if (resumeEvent === 'pageshow') page.window.dispatch('pageshow', { persisted: true });
+      else page.document.dispatch('visibilitychange');
+      assert.equal(page.elements.nextDays.textContent, '5 天');
+      page.advanceTime(24 * 60 * 60 * 1000);
+      assert.equal(page.elements.nextDays.textContent, '4 天');
+    });
+  });
+
+  test(`refreshes shared checklist and task guidance on ${resumeEvent}`, async () => {
+    const storage = {
+      value: '{}',
+      getItem() { return this.value; },
+      setItem(key, value) { this.value = value; }
+    };
+    const checkbox = createFakeElement({ dataset: { checkId: 'material-special' } });
+    checkbox.label = createFakeElement();
+    const skip = createFakeElement({ dataset: { skipCheck: 'material-special' } });
+    await withFakePage({ includeLiveConsole: false, today: '2026-10-15', storage,
+      checkboxes: [checkbox], skipButtons: [skip] }, async page => {
+      assert.match(page.elements.stageDetail.textContent, /审核通过后/);
+      storage.value = '{"material-special":"na","stage-confirm":true}';
+      if (resumeEvent === 'pageshow') page.window.dispatch('pageshow', { persisted: true });
+      else page.document.dispatch('visibilitychange');
+      assert.equal(page.elements.progressCount.textContent, '1 / 20 项（1 项不适用）');
+      assert.equal(checkbox.disabled, true);
+      assert.equal(checkbox.label.getAttribute('data-print-state'), '不适用');
+      assert.equal(skip.getAttribute('aria-pressed'), 'true');
+      assert.doesNotMatch(page.elements.stageDetail.textContent, /审核通过后/);
+    });
+  });
+}
+
+test('clears visible checklist when another tab clears local storage', async () => {
+  const storage = { value: '{"material-id":true}', getItem() { return this.value; } };
+  const checkbox = createFakeElement({ dataset: { checkId: 'material-id' } });
+  checkbox.label = createFakeElement();
+  await withFakePage({ includeLiveConsole: false, storage, checkboxes: [checkbox] }, async page => {
+    assert.equal(checkbox.checked, true);
+    storage.value = null;
+    page.window.dispatch('storage', { key: null, newValue: null, storageArea: storage });
+    assert.equal(page.elements.progressCount.textContent, '0 / 21 项');
+    assert.equal(checkbox.checked, false);
+    assert.equal(checkbox.label.getAttribute('data-print-state'), '未完成');
+  });
+});
+
+test('keeps checklist state when storage access fails during cross-tab synchronization', async () => {
+  const storage = {
+    blocked: false,
+    getItem() {
+      if (this.blocked) throw new Error('storage access revoked');
+      return '{"material-id":true}';
+    }
+  };
+  const checkbox = createFakeElement({ dataset: { checkId: 'material-id' } });
+  await withFakePage({ includeLiveConsole: false, storage, checkboxes: [checkbox] }, async page => {
+    storage.blocked = true;
+    page.window.dispatch('storage', { key: 'hainanu-2027-kaoyan-progress-v1', storageArea: storage });
+    assert.equal(page.elements.progressCount.textContent, '1 / 21 项');
+    assert.equal(checkbox.checked, true);
+    assert.equal(page.elements.storageWarning.hidden, false);
+    checkbox.checked = false;
+    checkbox.dispatch('change');
+    page.window.dispatch('pageshow', { persisted: true });
+    assert.equal(page.elements.progressCount.textContent, '0 / 21 项');
+  });
+});
+
+test('ignores checklist storage events from a different storage area', async () => {
+  const storage = { value: '{"material-id":true}', getItem() { return this.value; } };
+  await withFakePage({ includeLiveConsole: false, storage }, async page => {
+    storage.value = '{}';
+    page.window.dispatch('storage', { key: 'hainanu-2027-kaoyan-progress-v1', storageArea: {} });
+    assert.equal(page.elements.progressCount.textContent, '1 / 21 项');
+    page.window.dispatch('storage', { key: 'hainanu-2027-kaoyan-progress-v1', storageArea: storage });
+    assert.equal(page.elements.progressCount.textContent, '0 / 21 项');
+  });
+});
+
+test('preserves session-only checklist edits when a page becomes visible again', async () => {
+  const storage = {
+    getItem() { return '{}'; },
+    setItem() { throw new Error('quota exceeded'); }
+  };
+  const checkbox = createFakeElement({ dataset: { checkId: 'material-id' } });
+  await withFakePage({ includeLiveConsole: false, storage, checkboxes: [checkbox] }, async page => {
+    checkbox.checked = true;
+    checkbox.dispatch('change');
+    page.window.dispatch('pageshow', { persisted: true });
+    page.document.dispatch('visibilitychange');
+    assert.equal(checkbox.checked, true);
+    assert.equal(page.elements.progressCount.textContent, '1 / 21 项');
+    assert.equal(page.elements.storageWarning.hidden, false);
+  });
+});
+
+test('repairs malformed checklist JSON on edit and retains it across navigation', async () => {
+  const storage = {
+    value: '{broken-json',
+    getItem() { return this.value; },
+    setItem(key, value) { this.value = value; }
+  };
+  const checkbox = createFakeElement({ dataset: { checkId: 'material-id' } });
+  const options = { includeLiveConsole: false, storage, checkboxes: [checkbox] };
+  await withFakePage(options, async page => {
+    checkbox.checked = true;
+    checkbox.dispatch('change');
+    assert.equal(page.elements.progressCount.textContent, '1 / 21 项');
+    assert.equal(storage.value, '{"material-id":true}');
+    assert.equal(page.elements.storageWarning.hidden, true);
+  });
+  await withFakePage(options, async page => {
+    assert.equal(checkbox.checked, true);
+    assert.equal(page.elements.progressCount.textContent, '1 / 21 项');
+  });
+});
+
 test('renders current stage from shared milestone data without timeline DOM', async () => {
   await withFakePage({ includeLiveConsole: false, today: '2026-08-25' }, async (page) => {
     assert.equal(page.fetchCalls.length, 0);
     assert.equal(page.elements.stageName.textContent, '锁定专业基线');
-    assert.equal(page.elements.nextName.textContent, '招生章程与目录观察窗');
+    assert.equal(page.elements.nextName.textContent, '招生目录与报考资格核对');
   });
 });
 
@@ -1198,6 +1373,50 @@ test('shows a disconnected status while preserving notices and recovers on the n
   });
 });
 
+for (const acknowledgement of ['button', 'storage']) {
+  test(`acknowledgement via ${acknowledgement} preserves offline status until a successful fetch`, async () => {
+    await withFakePage({}, async page => {
+      const key = 'hainanu-2027-kaoyan-last-seen-v1';
+      page.window.localStorage.setItem(key, '2026-08-24T03:00:00.000Z');
+      page.settle(page.fetchCalls[0]);
+      await page.flush();
+      assert.equal(page.elements.newCount.textContent, '1 条新收录');
+      page.elements.updateNew.dispatch('click');
+      page.elements.refresh.dispatch('click');
+      page.fetchCalls[1].reject(new Error('network failure'));
+      await page.flush();
+      const statusFields = ['statusTitle', 'statusDetail', 'freshness', 'sourceCount', 'nextRefresh'];
+      const offlineText = statusFields.map(field => page.elements[field].textContent);
+      assert.equal(page.elements.console.dataset.state, 'offline');
+
+      if (acknowledgement === 'button') page.elements.acknowledge.dispatch('click');
+      else {
+        page.window.localStorage.setItem(key, '2026-08-24T04:00:00.000Z');
+        page.window.dispatch('storage', {
+          key, newValue: '2026-08-24T04:00:00.000Z', storageArea: page.window.localStorage
+        });
+      }
+
+      assert.equal(page.elements.console.dataset.state, 'offline');
+      assert.deepEqual(statusFields.map(field => page.elements[field].textContent), offlineText);
+      assert.equal(page.elements.newCount.hidden, true);
+      assert.equal(page.elements.updatesList.children[0].className, 'official-update-empty');
+      assert.equal(page.fetchCalls.length, 2);
+
+      const recovered = makeUpdatesPayload();
+      recovered.fetchedAt = recovered.updates[0].discoveredAt = '2026-08-24T05:00:00.000Z';
+      recovered.updates[0].id = 'notice-after-recovery';
+      page.elements.refresh.dispatch('click');
+      page.settle(page.fetchCalls[2], recovered);
+      await page.flush();
+      assert.equal(page.elements.console.dataset.state, 'fresh');
+      assert.equal(page.elements.statusTitle.textContent, '已连接 · 官方数据已同步');
+      assert.equal(page.elements.newCount.textContent, '1 条新收录');
+      assert.equal(findElementsByClass(page.elements.updatesList, 'official-update-link').length, 1);
+    });
+  });
+}
+
 test('a refresh cooldown does not falsely mark a reachable service as disconnected', async () => {
   await withFakePage({}, async (page) => {
     page.settle(page.fetchCalls[0]);
@@ -1330,6 +1549,82 @@ test('acknowledges new notices in the current session when local storage cannot 
     page.elements.updateNew.dispatch('click');
     assert.equal(page.elements.updatesList.children[0].className, 'official-update-empty');
     assert.equal(page.elements.storageWarning.hidden, false);
+  });
+});
+
+test('persists the first notice baseline so a later visit still flags new notices', async () => {
+  const storage = { values: new Map(),
+    getItem(key) { return this.values.get(key) || null; },
+    setItem(key, value) { this.values.set(key, value); } };
+  await withFakePage({ storage }, async page => {
+    page.settle(page.fetchCalls[0]);
+    await page.flush();
+    assert.equal(page.elements.newCount.hidden, true);
+  });
+  await withFakePage({ storage }, async page => {
+    const payload = makeUpdatesPayload();
+    payload.fetchedAt = payload.updates[0].discoveredAt = '2026-08-24T05:00:00.000Z';
+    page.settle(page.fetchCalls[0], payload);
+    await page.flush();
+    assert.equal(page.elements.newCount.textContent, '1 条新收录');
+    page.elements.updateNew.dispatch('click');
+    assert.equal(findElementsByClass(page.elements.updatesList, 'official-update-link').length, 1);
+  });
+});
+
+for (const deliverEvent of [true, false]) {
+  test(`an older tab cannot roll back shared acknowledgement (event delivered: ${deliverEvent})`, async () => {
+    const key = 'hainanu-2027-kaoyan-last-seen-v1';
+    const storage = { values: new Map([[key, '2026-08-24T03:00:00.000Z']]),
+      getItem(key) { return this.values.get(key) || null; },
+      setItem(key, value) { this.values.set(key, value); } };
+    await withFakePage({ storage }, async page => {
+      page.settle(page.fetchCalls[0]);
+      await page.flush();
+      storage.setItem(key, '2026-08-24T05:00:00.000Z');
+      if (deliverEvent) page.window.dispatch('storage', {
+        key, newValue: '2026-08-24T05:00:00.000Z', storageArea: storage
+      });
+      page.elements.acknowledge.dispatch('click');
+    });
+    await withFakePage({ storage }, async page => {
+      const payload = makeUpdatesPayload();
+      payload.fetchedAt = payload.updates[0].discoveredAt = '2026-08-24T05:00:00.000Z';
+      page.settle(page.fetchCalls[0], payload);
+      await page.flush();
+      assert.equal(page.elements.newCount.hidden, true);
+    });
+  });
+}
+
+test('uses a baseline established by another page during the initial request', async () => {
+  const key = 'hainanu-2027-kaoyan-last-seen-v1';
+  const storage = { values: new Map(),
+    getItem(key) { return this.values.get(key) || null; },
+    setItem(key, value) { this.values.set(key, value); } };
+  await withFakePage({ storage }, async page => {
+    storage.setItem(key, '2026-08-24T03:00:00.000Z');
+    page.window.dispatch('storage', {
+      key, newValue: '2026-08-24T03:00:00.000Z', storageArea: storage
+    });
+    page.settle(page.fetchCalls[0]);
+    await page.flush();
+    assert.equal(page.elements.newCount.textContent, '1 条新收录');
+  });
+});
+
+test('a queued older storage event cannot undo a newer acknowledgement', async () => {
+  const key = 'hainanu-2027-kaoyan-last-seen-v1';
+  const storage = { values: new Map([[key, '2026-08-24T05:00:00.000Z']]),
+    getItem(key) { return this.values.get(key) || null; },
+    setItem(key, value) { this.values.set(key, value); } };
+  await withFakePage({ storage }, async page => {
+    page.settle(page.fetchCalls[0]);
+    await page.flush();
+    page.window.dispatch('storage', {
+      key, newValue: '2026-08-24T03:00:00.000Z', storageArea: storage
+    });
+    assert.equal(page.elements.newCount.hidden, true);
   });
 });
 

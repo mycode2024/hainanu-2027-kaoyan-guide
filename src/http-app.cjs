@@ -100,13 +100,15 @@ function isTrustedRefreshRequest(request, trustedOrigins = null) {
   const localPort = Number(request.socket?.localPort);
   if (!Number.isInteger(localPort) || localPort < 1 || localPort > 65_535) return false;
   const allowedHosts = [`127.0.0.1:${localPort}`, `localhost:${localPort}`];
+  // HTTP clients omit the default port in Host and serialize Origin without :80.
+  if (localPort === 80) allowedHosts.push('127.0.0.1', 'localhost');
   if (!allowedHosts.includes(request.headers.host)) return false;
   const origin = request.headers.origin;
   if (!origin) return false;
   try {
     const originUrl = new URL(origin);
     return originUrl.protocol === 'http:' &&
-      allowedHosts.some((host) => originUrl.origin === `http://${host}`);
+      allowedHosts.some((host) => originUrl.origin === new URL(`http://${host}`).origin);
   } catch {
     return false;
   }

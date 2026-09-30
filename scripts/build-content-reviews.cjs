@@ -9,12 +9,12 @@ const pageReviews = {
   index: ['national', 'directory', 'baseline'],
   programs: ['directory', 'baseline'],
   scores: ['scores'],
-  preparation: ['baseline'],
-  timeline: ['national', 'baseline'],
-  application: ['national', 'baseline'],
-  materials: ['national', 'baseline'],
+  preparation: ['national', 'directory', 'baseline'],
+  timeline: ['national', 'directory', 'baseline'],
+  application: ['national', 'directory', 'baseline'],
+  materials: ['national', 'directory'],
   updates: ['national'],
-  sources: ['national', 'baseline']
+  sources: ['national', 'directory', 'baseline']
 };
 
 function renderReviewDates(html, page, metadata = reviews) {

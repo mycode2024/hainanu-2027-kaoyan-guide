@@ -207,17 +207,12 @@ function findCommentEnd(source, start) {
 }
 
 function findRawElementEnd(source, start, name) {
-  let index = start;
-  while (index < source.length) {
-    const tag = readHtmlTag(source, index);
-    if (tag) {
-      if (tag.closing && tag.name === name) return tag.end;
-      index = tag.end;
-    } else {
-      index += 1;
-    }
-  }
-  return source.length;
+  // Comparisons and markup-like strings in script/style are not opening tags.
+  // Look only for a matching end tag, with a boundary after its exact name.
+  const closingTag = new RegExp(`</${name}(?=[\\t\\n\\f\\r />])`, 'gi');
+  closingTag.lastIndex = start;
+  const match = closingTag.exec(source);
+  return match ? readHtmlTag(source, match.index)?.end || source.length : source.length;
 }
 
 function findTemplateEnd(source, start) {

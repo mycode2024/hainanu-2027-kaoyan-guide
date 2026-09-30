@@ -79,6 +79,33 @@ test('restoring a cache preserves its due time instead of granting another refre
   }
 });
 
+test('a script comparison does not prevent discovery and caching of a new notice', async () => {
+  const { createUpdateService } = loadService();
+  const card = number => `<li><a href="/info/1024/${9200 + number}.htm">2027年硕士研究生招生公告第${number}号</a><time>2026-09-28</time></li>`;
+  let html = card(1);
+  let currentTime = '2026-09-28T04:00:00Z';
+  const store = createMemoryStore();
+  const service = createUpdateService({
+    sources: [sources[0]], cacheStore: store,
+    now: () => new Date(currentTime), delayImpl: async () => {},
+    fetchImpl: async url => makeResponse(url, html)
+  });
+  const initial = await service.refresh();
+  assert.equal(initial.status, 'fresh');
+  html = '<script>const a=1,b=2;if(a < b) console.log(a);</script>' + card(1) + card(2);
+  currentTime = '2026-09-28T04:10:00Z';
+  const refreshed = await service.refresh();
+  assert.equal(refreshed.status, 'fresh');
+  assert.equal(refreshed.sources[0].ok, true);
+  assert.deepEqual(refreshed.updates.map(item => item.url), [
+    'https://gs.hainanu.edu.cn/info/1024/9201.htm',
+    'https://gs.hainanu.edu.cn/info/1024/9202.htm'
+  ]);
+  assert.equal(refreshed.change.newCount, 1);
+  assert.equal(store.writes.length, 2);
+  assert.deepEqual(store.writes[1].updates.map(item => item.url), refreshed.updates.map(item => item.url));
+});
+
 test('a successful refresh combines both sources and persists a fresh snapshot', async () => {
   const { createUpdateService } = loadService();
   assert.equal(typeof createUpdateService, 'function', 'createUpdateService must be exported');

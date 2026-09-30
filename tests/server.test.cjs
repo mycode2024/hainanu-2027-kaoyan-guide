@@ -355,6 +355,50 @@ test('manual refresh rejects DNS rebinding and missing origins, then enforces a 
   assert.equal(updateService.refreshCalls, 2);
 });
 
+test('manual refresh supports default HTTP port headers while rejecting mismatched origins', async t => {
+  const { createRequestHandler } = loadServer();
+  const cases = [
+    ['IPv4 browser headers', 80, '127.0.0.1', 'http://127.0.0.1', 200],
+    ['localhost browser headers', 80, 'localhost', 'http://localhost', 200],
+    ['explicit Host port', 80, '127.0.0.1:80', 'http://127.0.0.1', 200],
+    ['explicit Origin port', 80, 'localhost', 'http://localhost:80', 200],
+    ['both explicit ports', 80, 'localhost:80', 'http://localhost:80', 200],
+    ['nondefault port', 4173, '127.0.0.1:4173', 'http://127.0.0.1:4173', 200],
+    ['wrong Host port', 80, '127.0.0.1:4173', 'http://127.0.0.1', 403],
+    ['wrong Origin port', 80, '127.0.0.1', 'http://127.0.0.1:4173', 403],
+    ['omitted nondefault Host port', 4173, 'localhost', 'http://localhost:4173', 403],
+    ['omitted nondefault Origin port', 4173, 'localhost:4173', 'http://localhost', 403],
+    ['untrusted host', 80, 'attacker.test', 'http://attacker.test', 403],
+    ['untrusted origin', 80, 'localhost', 'http://attacker.test', 403],
+    ['wrong scheme', 80, 'localhost', 'https://localhost', 403],
+    ['missing origin', 80, 'localhost', undefined, 403],
+    ['missing marker', 80, 'localhost', 'http://localhost', 403, { 'x-hnu-guide-request': undefined }],
+    ['cross-site request', 80, 'localhost', 'http://localhost', 403, { 'sec-fetch-site': 'cross-site' }]
+  ];
+  for (const [name, port, host, origin, expectedStatus, extraHeaders = {}] of cases) {
+    await t.test(name, async () => {
+      const service = createServiceDouble();
+      const handler = createRequestHandler({
+        siteRoot: path.resolve(__dirname, '..'), updateService: service, manualRefreshCooldownMs: 0
+      });
+      // Exercise port 80 without binding a privileged or already occupied port.
+      const request = {
+        url: '/api/refresh', method: 'POST', socket: { localPort: port }, readableEnded: true,
+        headers: { host, origin, 'x-hnu-guide-request': '1', ...extraHeaders }, resume() {}
+      };
+      const response = {
+        headersSent: false,
+        writeHead(status) { this.status = status; this.headersSent = true; },
+        end(body) { this.body = body; }
+      };
+      await handler(request, response);
+      assert.equal(response.status, expectedStatus);
+      assert.equal(service.refreshCalls, expectedStatus === 200 ? 1 : 0);
+      if (expectedStatus === 200) assert.equal(JSON.parse(response.body).status, 'fresh');
+    });
+  }
+});
+
 test('health distinguishes a live process from trusted-data readiness', async (t) => {
   const { createHttpServer } = loadServer();
   let snapshot = { status: 'seed', updates: [], freshness: { overdueSourceIds: [] } };

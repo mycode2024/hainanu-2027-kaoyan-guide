@@ -548,6 +548,42 @@ test('does not let an unclosed pseudo div inside script break a following real c
   });
 });
 
+for (const [name, hidden] of [
+  ['spaced comparison', '<script>const a=1,b=2;if(a < b) console.log(a);</script>'],
+  ['compact comparison and mixed-case close', '<script>const a=1,b=2;if(a<b) console.log(a);</ScRiPt >'],
+  ['style comment', '<style>/* a < b */</style>'],
+  ['comparison inside template', '<template><script>const a=1,b=2;if(a<b) console.log(a);</script></template>']
+]) {
+  test(`preserves notices following raw text with ${name}`, () => {
+    const { parseOfficialDocument } = loadScraper();
+    const card = '<li><a href="/info/1024/9200.htm">2027年硕士研究生招生简章</a><time>2026-09-28</time></li>';
+    const result = parseOfficialDocument(hidden + card, graduateSource, '2026-09-30T04:00:00Z');
+    assert.deepEqual(result.updates.map(({ url, date }) => ({ url, date })), [
+      { url: 'https://gs.hainanu.edu.cn/info/1024/9200.htm', date: '2026-09-28' }
+    ]);
+    assert.deepEqual(result.diagnostics, { candidateCount: 1, relevantCount: 1, containerTypes: ['li'] });
+  });
+}
+
+test('raw text ends only at the matching tag name rather than a closing-name prefix', () => {
+  const { parseOfficialDocument } = loadScraper();
+  const fake = '<li><a href="/info/1024/9201.htm">2027年硕士研究生招生简章</a><time>2026-09-29</time></li>';
+  const real = '<li><a href="/info/1024/9202.htm">2027年硕士研究生招生目录</a><time>2026-09-28</time></li>';
+  for (const tag of ['script', 'style']) {
+    const html = `<${tag}>/* </${tag}ure> ${fake} */</${tag}>${real}`;
+    const result = parseOfficialDocument(html, graduateSource, '2026-09-30T04:00:00Z');
+    assert.deepEqual(result.updates.map(item => item.url), ['https://gs.hainanu.edu.cn/info/1024/9202.htm'], tag);
+    assert.equal(result.diagnostics.candidateCount, 1, tag);
+  }
+});
+
+test('preserves publication metadata after a script comparison', () => {
+  const { parseOfficialPublicationDate } = loadScraper();
+  assert.equal(parseOfficialPublicationDate(
+    '<script>const a=1,b=2;if(a<b) console.log(a);</script><meta name="PubDate" content="2026-09-28">'
+  ), '2026-09-28');
+});
+
 test('masks nested templates through their matching outer closing tag', () => {
   const { parseOfficialDocument } = loadScraper();
   const html = `

@@ -15,8 +15,8 @@
   const optionalChecklistIds = new Set(['stage-preapply', 'material-point', 'material-special']);
 
   const milestones = [
-    { id: 'verify', start: '2026-07-02', end: '2026-09-14', label: '锁定专业基线', action: '按 408 推进一轮复习，等待 2027 正式目录' },
-    { id: 'directory', start: '2026-09-15', end: '2026-09-30', label: '招生章程与目录观察窗', action: '逐字段核对专业、院系、科目、备注与计划' },
+    { id: 'verify', start: '2026-07-02', end: '2026-09-14', label: '锁定专业基线', action: '按 408 推进一轮复习，并核对 2027 正式目录' },
+    { id: 'directory', start: '2026-09-15', end: '2026-09-30', label: '招生目录与报考资格核对', action: '逐字段核对专业、院系、科目、备注与计划' },
     { id: 'consultation', start: '2026-09-26', end: '2026-09-29', label: '研招咨询活动', action: '进入研招网在线咨询，向招生单位核对专业限制、科目和报考要求' },
     { id: 'preapply', start: '2026-10-09', end: '2026-10-12', label: '网上预报名', action: '每日 9:00—22:00；按所在省安排填报并提交核验材料' },
     { id: 'apply', start: '2026-10-15', end: '2026-10-24', label: '全国网上报名', action: '每日 9:00—22:00；填写信息、一并提交核验材料并完成缴费' },
@@ -66,14 +66,26 @@
     return items.filter((item) => item.category === category);
   }
 
+  function readChecks(storage, key, allowedIds) {
+    // Access failures must reach the caller; malformed data can be repaired
+    // by the next edit without disabling otherwise usable storage.
+    const serialized = storage.getItem(key);
+    let parsed;
+    try {
+      parsed = JSON.parse(serialized || '{}');
+    } catch {
+      return {};
+    }
+    if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') return {};
+    const allowedIdSet = allowedIds ? new Set(allowedIds) : null;
+    return Object.fromEntries(Object.entries(parsed).filter(([id, value]) => (
+      (typeof value === 'boolean' || (value === 'na' && optionalChecklistIds.has(id))) && (!allowedIdSet || allowedIdSet.has(id))
+    )));
+  }
+
   function safeReadChecks(storage, key, allowedIds) {
     try {
-      const parsed = JSON.parse(storage.getItem(key) || '{}');
-      if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') return {};
-      const allowedIdSet = allowedIds ? new Set(allowedIds) : null;
-      return Object.fromEntries(Object.entries(parsed).filter(([id, value]) => (
-        (typeof value === 'boolean' || (value === 'na' && optionalChecklistIds.has(id))) && (!allowedIdSet || allowedIdSet.has(id))
-      )));
+      return readChecks(storage, key, allowedIds);
     } catch {
       return {};
     }
@@ -578,13 +590,34 @@
     let activeRequestController = null;
     let requestInFlight = false;
     let resumePending = false;
-    try {
-      const storedLastSeenAt = window.localStorage.getItem(LAST_SEEN_UPDATES_KEY);
-      if (storedLastSeenAt && Number.isFinite(Date.parse(storedLastSeenAt))) unseenBaselineAt = storedLastSeenAt;
-    } catch {
-      unseenBaselineAt = null;
-      showSessionStorageWarning();
+    function syncUnseenBaseline(observedAt = null, acknowledge = false) {
+      let storage = null;
+      let storedAt = null;
+      const advance = (candidate) => {
+        if (typeof candidate === 'string' && Number.isFinite(Date.parse(candidate)) &&
+            (!unseenBaselineAt || Date.parse(candidate) > Date.parse(unseenBaselineAt))) {
+          unseenBaselineAt = candidate;
+        }
+      };
+      try {
+        storage = window.localStorage;
+        storedAt = getUnseenBaseline(storage.getItem(LAST_SEEN_UPDATES_KEY), null);
+        advance(storedAt);
+      } catch {
+        storage = null;
+        showSessionStorageWarning();
+      }
+      // Polling preserves the baseline; only an explicit acknowledgement advances it.
+      if (!unseenBaselineAt || acknowledge) advance(observedAt);
+      if (storage && unseenBaselineAt && (!storedAt || acknowledge) && storedAt !== unseenBaselineAt) {
+        try {
+          storage.setItem(LAST_SEEN_UPDATES_KEY, unseenBaselineAt);
+        } catch {
+          showSessionStorageWarning();
+        }
+      }
     }
+    syncUnseenBaseline();
 
     function renderSources(sources, refreshIntervalMs) {
       if (!sourceHealth) return;
@@ -696,10 +729,7 @@
     function renderSnapshot(rawPayload) {
       const payload = normalizeUpdatesPayload(rawPayload);
       const observedAt = payload.fetchedAt || payload.lastSuccessAt;
-      unseenBaselineAt = getUnseenBaseline(unseenBaselineAt, observedAt);
-      const unseenUpdates = getUnseenUpdates(payload.updates, unseenBaselineAt);
-      const unseenIds = new Set(unseenUpdates.map((update) => update.id));
-      const displayUpdates = aggregateUpdatesForDisplay(payload.updates, unseenIds, acknowledgedUpdateIds);
+      syncUnseenBaseline(observedAt);
       const wasFirstRender = !hasRenderedSnapshot;
       latestPayload = payload;
       hasRenderedSnapshot = true;
@@ -743,13 +773,8 @@
           : refreshInterval === '按刷新周期' ? refreshInterval : `每 ${refreshInterval}`;
       }
       if (sourceCount) sourceCount.textContent = `${successfulSources} / ${payload.sources.length || 4} 正常`;
-      if (newCount) {
-        const unacknowledgedCount = displayUpdates.filter((update) => update.isNew).length;
-        newCount.hidden = unacknowledgedCount === 0;
-        newCount.textContent = unacknowledgedCount ? `${unacknowledgedCount} 条新收录` : '';
-      }
       renderSources(payload.sources, payload.refreshIntervalMs);
-      renderUpdates(payload.updates, unseenIds);
+      renderCurrentUpdates();
       if (wasFirstRender && payload.freshness.isOverdue && !requestInFlight) {
         window.setTimeout(() => loadUpdates(true), 500);
       }
@@ -858,6 +883,13 @@
     function renderCurrentUpdates() {
       if (!latestPayload) return;
       const unseenIds = new Set(getUnseenUpdates(latestPayload.updates, unseenBaselineAt).map((update) => update.id));
+      const displayUpdates = aggregateUpdatesForDisplay(latestPayload.updates, unseenIds, acknowledgedUpdateIds);
+      if (newCount) {
+        const unacknowledgedCount = displayUpdates.filter((update) => update.isNew).length;
+        newCount.hidden = unacknowledgedCount === 0;
+        newCount.textContent = unacknowledgedCount ? `${unacknowledgedCount} 条新收录` : '';
+      }
+      // Local read-state changes must not overwrite the latest connection status.
       renderUpdates(latestPayload.updates, unseenIds);
     }
     function changeUpdatesPage(offset) {
@@ -887,15 +919,9 @@
       const unseenUpdates = getUnseenUpdates(latestPayload.updates, unseenBaselineAt);
       unseenUpdates.forEach((update) => acknowledgedUpdateIds.add(update.id));
       const observedAt = latestPayload.fetchedAt || latestPayload.lastSuccessAt;
-      if (observedAt) {
-        try {
-          window.localStorage.setItem(LAST_SEEN_UPDATES_KEY, observedAt);
-        } catch {
-          showSessionStorageWarning();
-        }
-      }
+      syncUnseenBaseline(observedAt, true);
       renderedUpdatesKey = null;
-      renderSnapshot(latestPayload);
+      renderCurrentUpdates();
     });
 
     if (window.location.protocol === 'file:') {
@@ -921,10 +947,16 @@
     });
     if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
       window.addEventListener('storage', (event) => {
-        if (event.key === LAST_SEEN_UPDATES_KEY && latestPayload) {
-          unseenBaselineAt = event.newValue || null;
-          renderedUpdatesKey = null;
-          renderSnapshot(latestPayload);
+        if (event.key === LAST_SEEN_UPDATES_KEY) {
+          try {
+            if (event.storageArea !== window.localStorage) return;
+          } catch {
+            showSessionStorageWarning();
+            return;
+          }
+          // Read current storage: a queued event may describe an older write.
+          syncUnseenBaseline();
+          renderCurrentUpdates();
         }
       });
     }
@@ -1012,18 +1044,15 @@
     const checkboxes = Array.from(document.querySelectorAll('.task-check[data-check-id]'));
     const skipButtons = Array.from(document.querySelectorAll('[data-skip-check]'));
     let progressStorage = null;
+    let checklistState = {};
     try {
       progressStorage = window.localStorage;
-      progressStorage.getItem(STORAGE_KEY);
+      checklistState = readChecks(progressStorage, STORAGE_KEY, CHECKLIST_IDS);
     } catch {
       // Some restricted or file origins block access at the property getter.
       progressStorage = null;
       showSessionStorageWarning();
     }
-    let checklistState = safeReadChecks(progressStorage, STORAGE_KEY, CHECKLIST_IDS);
-    checkboxes.forEach((checkbox) => {
-      checkbox.checked = checklistState[checkbox.dataset.checkId] === true;
-    });
 
     function renderProgress() {
       const { completed, total, percent } = countChecklistProgress(checklistState);
@@ -1060,9 +1089,8 @@
         checklistState = mergeChecklistState(checklistState, pageValues);
       } else {
         try {
-          progressStorage.getItem(STORAGE_KEY);
           checklistState = mergeChecklistState(
-            safeReadChecks(progressStorage, STORAGE_KEY, CHECKLIST_IDS),
+            readChecks(progressStorage, STORAGE_KEY, CHECKLIST_IDS),
             pageValues
           );
           progressStorage.setItem(STORAGE_KEY, JSON.stringify(checklistState));
@@ -1084,18 +1112,54 @@
       if (optionalChecklistIds.has(id)) persistChecks({ [id]: checklistState[id] === 'na' ? false : 'na' });
     }));
     renderProgress();
+    function refreshChecklist() {
+      if (progressStorage) {
+        try {
+          checklistState = readChecks(progressStorage, STORAGE_KEY, CHECKLIST_IDS);
+        } catch {
+          // Keep the last usable state when storage becomes inaccessible.
+          progressStorage = null;
+          showSessionStorageWarning();
+        }
+      }
+      renderProgress();
+    }
+    let stageRefreshTimer = null;
+    function stopStageRefresh() {
+      if (stageRefreshTimer !== null) window.clearTimeout(stageRefreshTimer);
+      stageRefreshTimer = null;
+    }
+    function scheduleStageRefresh() {
+      stopStageRefresh();
+      if (document.visibilityState === 'hidden') return;
+      const now = new Date();
+      const nextMidnight = new Date(now.getTime());
+      nextMidnight.setHours(24, 0, 0, 0);
+      stageRefreshTimer = window.setTimeout(() => {
+        stageRefreshTimer = null;
+        refreshChecklist();
+        scheduleStageRefresh();
+      }, Math.max(1, nextMidnight.getTime() - now.getTime()));
+    }
+    scheduleStageRefresh();
     document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState !== 'hidden') renderCurrentStage(checklistState);
+      if (document.visibilityState === 'hidden') stopStageRefresh();
+      else {
+        refreshChecklist();
+        scheduleStageRefresh();
+      }
     });
 
     if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+      window.addEventListener('pageshow', () => {
+        refreshChecklist();
+        scheduleStageRefresh();
+      });
+      window.addEventListener('pagehide', stopStageRefresh);
       window.addEventListener('storage', (event) => {
-        if (event.key === STORAGE_KEY && progressStorage) {
-          checklistState = safeReadChecks(progressStorage, STORAGE_KEY, CHECKLIST_IDS);
-          checkboxes.forEach((checkbox) => {
-            checkbox.checked = checklistState[checkbox.dataset.checkId] === true;
-          });
-          renderProgress();
+        if (progressStorage && event.storageArea === progressStorage &&
+            (event.key === STORAGE_KEY || event.key === null)) {
+          refreshChecklist();
         }
       });
     }
