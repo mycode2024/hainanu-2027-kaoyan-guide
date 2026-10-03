@@ -1,6 +1,7 @@
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const {
+  PARSER_DIAGNOSTICS_VERSION,
   isAllowedOfficialUrl,
   isRelevantAdmissionCycle,
   parseOfficialDocument,
@@ -42,6 +43,7 @@ function makeSeedSnapshot(sources, refreshIntervalMs, date) {
       checkedAt: null,
       lastSuccessAt: null,
       attempts: 0,
+      parserVersion: null,
       diagnostics: null,
       lastTrustedDiagnostics: null,
       error: null
@@ -181,6 +183,7 @@ function sanitizeCachedSnapshot(value, sources, refreshIntervalMs, date) {
       return {
         ...source,
         lastSuccessAt: isValidIsoDate(cached?.lastSuccessAt) ? cached.lastSuccessAt : null,
+        parserVersion: Number.isInteger(cached?.parserVersion) && cached.parserVersion > 0 ? cached.parserVersion : null,
         diagnostics,
         lastTrustedDiagnostics
       };
@@ -242,6 +245,26 @@ function updateIdentity(update) {
   const sourceId = String(update?.sourceId || '');
   const url = normalizeUrl(update?.url);
   return sourceId && url ? `${sourceId}\n${url}` : String(update?.id || '');
+}
+
+function toSourceObservation(update) {
+  return {
+    sourceId: update.sourceId,
+    url: normalizeUrl(update.url),
+    discoveredAt: update.discoveredAt,
+    contentHash: typeof update.contentHash === 'string' ? update.contentHash : '',
+    updatedAt: isValidIsoDate(update.updatedAt) ? update.updatedAt : null
+  };
+}
+
+function readSourceObservations(value, sources) {
+  const sourceById = new Map(sources.map(source => [source.id, source]));
+  return (Array.isArray(value) ? value : [])
+    .filter(update => update && typeof update === 'object' &&
+      sourceById.has(update.sourceId) && typeof update.url === 'string' &&
+      isAllowedOfficialUrl(update.url, sourceById.get(update.sourceId)) &&
+      isValidIsoDate(update.discoveredAt))
+    .map(toSourceObservation);
 }
 
 function rankUpdates(updates, limit = MAX_SNAPSHOT_UPDATES) {
@@ -420,6 +443,9 @@ function createUpdateService(options = {}) {
   if (typeof fetchImpl !== 'function') throw new TypeError('A fetch implementation is required');
 
   let snapshot = makeSeedSnapshot(sources, refreshIntervalMs, now());
+  // The display cap must not erase discovery history for an unchanged source list.
+  // Keep compact observations of each source's latest successful list separately.
+  let sourceObservations = new Map();
   let initializationPromise = null;
   let inFlight = null;
   let intervalHandle = null;
@@ -451,6 +477,8 @@ function createUpdateService(options = {}) {
         const cached = loaded?.cacheSnapshot || loaded;
         const sanitized = sanitizeCachedSnapshot(cached, sources, refreshIntervalMs, now());
         if (sanitized) {
+          sourceObservations = new Map(readSourceObservations(cached.sourceObservations, sources)
+            .map(update => [updateIdentity(update), update]));
           snapshot = loaded?.recoveryWarning
             ? { ...sanitized, error: String(loaded.recoveryWarning).slice(0, 240) }
             : sanitized;
@@ -542,10 +570,10 @@ function createUpdateService(options = {}) {
           html = await response.text();
           if (Buffer.byteLength(html, 'utf8') > MAX_HTML_LENGTH) throw new Error('官网响应过大，已停止读取');
         }
-        return html;
+        return { html, url: response.url || requestedUrl };
       }
-      const html = await readOfficialHtml(source.url);
-      const parsed = parseDocument(html, source, checkedAt);
+      const page = await readOfficialHtml(source.url);
+      const parsed = parseDocument(page.html, source, checkedAt, page.url);
       let updates = Array.isArray(parsed?.updates) ? parsed.updates : null;
       attemptedDiagnostics = sanitizeParserDiagnostics(parsed?.diagnostics, updates?.length);
       if (!updates || !attemptedDiagnostics) {
@@ -572,7 +600,7 @@ function createUpdateService(options = {}) {
         while (pendingIndex < pending.length) {
           const update = pending[pendingIndex++];
           const article = await readOfficialHtml(update.url);
-          const date = parseOfficialPublicationDate(article);
+          const date = parseOfficialPublicationDate(article.html);
           if (!date) throw new Error('无法核实通知原文的发布年份，已保留上次可信缓存');
           const todayInShanghai = new Date(Date.parse(checkedAt) + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
           if (date > todayInShanghai) throw new Error('通知原文发布日期晚于当前日期，已保留上次可信缓存');
@@ -742,6 +770,10 @@ function createUpdateService(options = {}) {
       const previousSourceById = new Map((snapshot.sources || []).map((source) => [source.id, source]));
       const priorDiagnosticsBySource = new Map(sources.map((source) => {
         const previous = previousSourceById.get(source.id);
+        // A different parser can select a different container for identical
+        // HTML. Re-establish only that structural baseline after an upgrade;
+        // record-count, URL-loss and publication-date checks remain active.
+        if (previous?.parserVersion !== PARSER_DIAGNOSTICS_VERSION) return [source.id, null];
         return [source.id, sanitizeParserDiagnostics(previous?.lastTrustedDiagnostics) || sanitizeParserDiagnostics(previous?.diagnostics)];
       }));
       results = new Array(sources.length);
@@ -782,6 +814,10 @@ function createUpdateService(options = {}) {
     const failedCount = results.length - successfulSourceIds.size;
     const sourceStates = results.map((result) => ({
       ...result.source,
+      parserVersion: result.source.ok ? PARSER_DIAGNOSTICS_VERSION
+        : previousSourceById.get(result.source.id)?.parserVersion ?? null,
+      lastTrustedDiagnostics: result.source.ok ? result.source.lastTrustedDiagnostics
+        : previousSourceById.get(result.source.id)?.lastTrustedDiagnostics || result.source.lastTrustedDiagnostics,
       lastSuccessAt: result.source.lastSuccessAt || previousSourceById.get(result.source.id)?.lastSuccessAt || null
     }));
 
@@ -812,10 +848,10 @@ function createUpdateService(options = {}) {
     }
 
     const previousUpdates = snapshot.updates || [];
-    const previousUpdateByUrl = new Map(previousUpdates.map((update) => [
+    const previousUpdateByUrl = new Map([...sourceObservations, ...previousUpdates.map((update) => [
       `${update.sourceId}\n${normalizeUrl(update.url)}`,
       update
-    ]));
+    ])]);
     const freshUpdates = results.flatMap((result) => result.updates).map((update) => {
       const previous = previousUpdateByUrl.get(`${update.sourceId}\n${normalizeUrl(update.url)}`);
       const contentChanged = Boolean(previous?.contentHash && update.contentHash && previous.contentHash !== update.contentHash);
@@ -858,7 +894,8 @@ function createUpdateService(options = {}) {
     ));
     const newIds = retainedDiscoveries.map((update) => update.id);
     const discardedNewCount = discoveredUpdates.length - retainedDiscoveries.length;
-    const updatedIds = filteredFreshUpdates.filter((update) => update.changeType === 'updated').map((update) => update.id);
+    const updatedIds = filteredFreshUpdates.filter((update) => update.changeType === 'updated' &&
+      retainedDiscoveryKeys.has(updateIdentity(update))).map((update) => update.id);
     const nextSnapshot = {
       schemaVersion: 2,
       status: failedCount === 0 ? 'fresh' : 'stale',
@@ -883,9 +920,15 @@ function createUpdateService(options = {}) {
     };
 
     snapshot = nextSnapshot;
+    // Replace successful sources rather than accumulating an unbounded archive;
+    // failed sources retain their last successful observations for recovery.
+    sourceObservations = new Map([
+      ...[...previousUpdateByUrl].filter(([, update]) => !successfulSourceIds.has(update.sourceId)),
+      ...filteredFreshUpdates.map(update => [updateIdentity(update), toSourceObservation(update)])
+    ]);
     let cacheSaved = true;
     try {
-      await cacheStore.save(nextSnapshot);
+      await cacheStore.save({ ...nextSnapshot, sourceObservations: [...sourceObservations.values()].map(toSourceObservation) });
     } catch (error) {
       cacheSaved = false;
       snapshot = { ...nextSnapshot, status: 'stale', error: `最新通知已读取，但本地缓存写入失败：${error.message}` };

@@ -169,7 +169,9 @@
         category: text(update.category) || '招生动态',
         isTarget2027: update.isTarget2027 === true,
         isImportant: update.isImportant === true,
-        discoveredAt: validIso(update.discoveredAt) ? update.discoveredAt : null
+        discoveredAt: validIso(update.discoveredAt) ? update.discoveredAt : null,
+        lastSeenAt: validIso(update.lastSeenAt) ? update.lastSeenAt : null,
+        updatedAt: validIso(update.updatedAt) ? update.updatedAt : null
       }))
       .filter((update) => (
         update.id && update.title && validPublicationDate(update.date) &&
@@ -285,6 +287,12 @@
     const newIdSet = newIds instanceof Set ? newIds : new Set(newIds || []);
     const acknowledgedIdSet = acknowledgedIds instanceof Set ? acknowledgedIds : new Set(acknowledgedIds || []);
     const groupedByUrl = new Map();
+    const timestamp = (value) => {
+      const parsed = typeof value === 'string' ? Date.parse(value) : Number.NaN;
+      return Number.isFinite(parsed) ? parsed : null;
+    };
+    const contentTime = (update) => timestamp(update.updatedAt) ?? timestamp(update.discoveredAt) ?? Number.NEGATIVE_INFINITY;
+    const observationTime = (update) => timestamp(update.lastSeenAt) ?? contentTime(update);
 
     (Array.isArray(updates) ? updates : []).forEach((update) => {
       if (!update || typeof update !== 'object' || typeof update.url !== 'string') return;
@@ -302,7 +310,15 @@
       const orderedMembers = members.slice().sort((left, right) => (
         `${left.sourceId || ''}\u0000${left.id || ''}`.localeCompare(`${right.sourceId || ''}\u0000${right.id || ''}`)
       ));
-      const primary = orderedMembers[0];
+      // Keep source/member order stable, but choose content by successful observation.
+      // Old caches without observation clocks fall back to revision/discovery time.
+      const primary = orderedMembers.reduce((current, candidate) => {
+        const currentTime = observationTime(current);
+        const candidateTime = observationTime(candidate);
+        return candidateTime > currentTime ||
+          (candidateTime === currentTime && contentTime(candidate) > contentTime(current))
+          ? candidate : current;
+      });
       const sourceIds = [];
       const sourceNames = [];
       orderedMembers.forEach((member) => {

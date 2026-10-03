@@ -1,4 +1,6 @@
 const crypto = require('node:crypto');
+// Bump when parser changes make persisted structural diagnostics incomparable.
+const PARSER_DIAGNOSTICS_VERSION = 2;
 const SHANGHAI_DATE_FORMAT = new Intl.DateTimeFormat('en-US', {
   timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit'
 });
@@ -26,7 +28,15 @@ function decodeHtmlEntities(value) {
 }
 
 function cleanText(value) {
-  return decodeHtmlEntities(String(value || '').replace(/<[^>]*>/g, ' '))
+  const source = String(value || '');
+  const parts = [];
+  let cursor = 0;
+  for (const tag of scanHtmlTags(source)) {
+    parts.push(source.slice(cursor, tag.start), ' ');
+    cursor = tag.end;
+  }
+  parts.push(source.slice(cursor));
+  return decodeHtmlEntities(parts.join(''))
     .replace(/[\u200B-\u200D\uFEFF]/g, '')
     .replace(/\s+/g, ' ')
     .trim();
@@ -167,6 +177,7 @@ function readHtmlTag(source, start) {
   const nameStart = index;
   while (/[A-Za-z0-9:-]/.test(source[index] || '')) index += 1;
   const name = source.slice(nameStart, index).toLowerCase();
+  const attributesStart = index;
   let quote = null;
   let lastSignificantCharacter = null;
   let slashAtBoundary = false;
@@ -186,6 +197,7 @@ function readHtmlTag(source, start) {
       return {
         name,
         closing,
+        attributesStart,
         selfClosing: !closing && lastSignificantCharacter === '/' && slashAtBoundary,
         end: index + 1
       };
@@ -199,6 +211,27 @@ function readHtmlTag(source, start) {
     lastWasWhitespace = false;
   }
   return null;
+}
+
+function* scanHtmlTags(source) {
+  let index = 0;
+  while ((index = source.indexOf('<', index)) !== -1) {
+    if (source.startsWith('<!--', index) || source.startsWith('<!', index) || source.startsWith('<?', index)) {
+      const end = source.startsWith('<!--', index) ? findCommentEnd(source, index) : source.indexOf('>', index + 2) + 1;
+      if (end > index) {
+        yield { name: '#declaration', start: index, end };
+        index = end;
+        continue;
+      }
+    }
+    const tag = readHtmlTag(source, index);
+    if (!tag) {
+      index += 1;
+      continue;
+    }
+    yield { ...tag, start: index };
+    index = tag.end;
+  }
 }
 
 function findCommentEnd(source, start) {
@@ -291,19 +324,55 @@ function extractVisibleText(content) {
 }
 
 function findPublicationLabels(content) {
-  const labels = [...content.matchAll(/<time\b[^>]*>[\s\S]*?<\/time>/gi)];
-  for (const label of content.matchAll(/<span\b([^>]*)>[\s\S]*?<\/span>/gi)) {
-    const className = label[1].match(/\bclass\s*=\s*(["'])(.*?)\1/i)?.[2] || '';
-    if (/(?:^|[\s_-])(?:date|pubdate|time)(?:$|[\s_-])/i.test(className)) labels.push(label);
-  }
-  return labels.sort((a, b) => a.index - b.index);
+  let coveredThrough = -1;
+  return ['time', 'span', 'div'].flatMap(type => findBalancedElements(content, type))
+    .filter(label => label.type === 'time' || /(?:^|[\s_-])(?:date|pubdate|time)(?:$|[\s_-])/i.test(
+      decodeHtmlEntities(readHtmlAttribute(content, readHtmlTag(content, label.start), 'class') || '')
+    ))
+    .sort((a, b) => a.start - b.start || b.end - a.end)
+    .filter(label => {
+      if (label.end <= coveredThrough) return false;
+      coveredThrough = label.end;
+      return true;
+    })
+    .map(label => ({ 0: label.content, index: label.start }));
 }
 
 function extractPublicationDate(visibleContent, checkedDate) {
+  // Expose machine-readable publication dates to the same ordered date scan.
+  // Keep the publisher's calendar day rather than converting it through UTC.
+  const parts = [];
+  let cursor = 0;
+  for (const tag of scanHtmlTags(visibleContent)) {
+    if (tag.name !== 'time' || tag.closing) continue;
+    const value = decodeHtmlEntities(readHtmlAttribute(visibleContent, tag, 'datetime') || '').trim();
+    const match = value.match(/^(20\d{2})-(\d{2})-(\d{2})(?:$|[T ])/);
+    const validDate = match && Number.isFinite(Date.parse(value)) &&
+      isValidCalendarDate(Number(match[1]), Number(match[2]), Number(match[3]));
+    parts.push(visibleContent.slice(cursor, tag.start), `<time>${validDate ? `${match[1]}-${match[2]}-${match[3]} ` : ''}`);
+    cursor = tag.end;
+  }
+  parts.push(visibleContent.slice(cursor));
   // Link text may contain an exam/deadline date; it is not a publication label.
   // Clickable cards can still contain explicit time/date elements.
-  const visibleText = cleanText(visibleContent.replace(/<a\b[^>]*>[\s\S]*?<\/a>/gi,
-    (link) => findPublicationLabels(link).map((label) => label[0]).join(' ')));
+  const datedContent = parts.join('');
+  const publicationParts = [];
+  cursor = 0;
+  for (const link of findBalancedElements(datedContent, 'a').sort((a, b) => a.start - b.start)) {
+    if (link.start < cursor) continue;
+    publicationParts.push(datedContent.slice(cursor, link.start), ' ',
+      findPublicationLabels(link.content).map(label => label[0]).join(' '), ' ');
+    cursor = link.end;
+  }
+  publicationParts.push(datedContent.slice(cursor));
+  const publicationContent = publicationParts.join('');
+  const labels = findPublicationLabels(publicationContent);
+  // Explicit publication labels take precedence over dates in summaries.
+  // An invalid label must not fall back to an unrelated full deadline date.
+  // Unlabelled short dates may still trigger verification against the article.
+  const visibleText = cleanText(labels.length
+    ? labels.map(label => label[0]).join(' ')
+    : publicationContent);
   const dateCandidates = [];
 
   for (const match of visibleText.matchAll(/\b(20\d{2})-((?:0[1-9]|1[0-2]))-((?:0[1-9]|[12]\d|3[01]))\b/g)) {
@@ -318,23 +387,30 @@ function extractPublicationDate(visibleContent, checkedDate) {
   }
 
   if (checkedDate) {
-    for (const match of visibleText.matchAll(/\[\s*((?:0[1-9]|1[0-2]))-((?:0[1-9]|[12]\d|3[01]))\s*\]/g)) {
-      const month = Number(match[1]);
-      const year = checkedDate.year - (month > checkedDate.month ? 1 : 0);
-      dateCandidates.push({
-        index: match.index,
-        year,
-        month,
-        day: Number(match[2]),
-        value: `${year}-${match[1]}-${match[2]}`,
-        inferred: true
-      });
+    const shortDateTexts = [visibleText, ...(labels.length ? [cleanText(publicationContent)] : [])];
+    for (const [priority, text] of shortDateTexts.entries()) {
+      for (const match of text.matchAll(/\[\s*((?:0[1-9]|1[0-2]))-((?:0[1-9]|[12]\d|3[01]))\s*\]/g)) {
+        const month = Number(match[1]);
+        const year = checkedDate.year - (month > checkedDate.month ? 1 : 0);
+        dateCandidates.push({
+          priority,
+          index: match.index,
+          year,
+          month,
+          day: Number(match[2]),
+          value: `${year}-${match[1]}-${match[2]}`,
+          inferred: true
+        });
+      }
     }
   }
 
-  return dateCandidates
-    .sort((a, b) => a.index - b.index)
-    .find((candidate) => isValidCalendarDate(candidate.year, candidate.month, candidate.day)) ?? null;
+  const date = dateCandidates
+    .sort((a, b) => (a.priority || 0) - (b.priority || 0) || a.index - b.index)
+    .find((candidate) => isValidCalendarDate(candidate.year, candidate.month, candidate.day));
+  // Preserve even an invalid explicit label as a boundary against nested
+  // summary dates. It must not silently turn a deadline into a publication.
+  return date || labels.length ? { ...date, hasPublicationLabel: labels.length > 0 } : null;
 }
 
 // Only publication metadata or the publisher's dated byline may establish a year.
@@ -342,10 +418,12 @@ function extractPublicationDate(visibleContent, checkedDate) {
 function parseOfficialPublicationDate(html) {
   const visibleHtml = maskNonVisibleRegions(String(html || ''));
   const candidates = [];
-  for (const tag of visibleHtml.matchAll(/<meta\b[^>]*>/gi)) {
-    const attributes = Object.fromEntries([...tag[0].matchAll(/([\w:-]+)\s*=\s*(["'])(.*?)\2/g)].map((match) => [match[1].toLowerCase(), match[3]]));
-    if (/^(pubdate|publishdate|article:published_time)$/i.test(attributes.name || attributes.property || '')) {
-      candidates.push(attributes.content || '');
+  for (const tag of scanHtmlTags(visibleHtml)) {
+    if (tag.name !== 'meta' || tag.closing) continue;
+    const name = decodeHtmlEntities(readHtmlAttribute(visibleHtml, tag, 'name') ||
+      readHtmlAttribute(visibleHtml, tag, 'property') || '').trim();
+    if (/^(pubdate|publishdate|article:published_time)$/i.test(name)) {
+      candidates.push(decodeHtmlEntities(readHtmlAttribute(visibleHtml, tag, 'content') || '').trim());
     }
   }
   const byline = extractVisibleText(visibleHtml).match(/(20\d{2}年\d{1,2}月\d{1,2}日)\s+\d{1,2}:\d{2}\s*来源\s*[:：]/);
@@ -360,32 +438,84 @@ function parseOfficialPublicationDate(html) {
 }
 
 function findBalancedElements(scanDocument, type) {
-  const tagPattern = new RegExp(`<\\/?${type}\\b[^>]*>`, 'gi');
   const openElements = [];
   const elements = [];
-  let tag;
+  const listStack = [];
+  const finishElement = (end) => {
+    const opening = openElements.pop();
+    if (!opening) return;
+    elements.push({ type, start: opening.start, end, content: scanDocument.slice(opening.start, end) });
+  };
 
-  while ((tag = tagPattern.exec(scanDocument))) {
-    if (/^<\//.test(tag[0])) {
-      const opening = openElements.pop();
-      if (!opening) continue;
-      elements.push({
-        type,
-        start: opening.start,
-        end: tagPattern.lastIndex,
-        content: scanDocument.slice(opening.start, tagPattern.lastIndex)
-      });
-    } else if (!/\/\s*>$/.test(tag[0])) {
-      openElements.push({ start: tag.index });
+  for (const tag of scanHtmlTags(scanDocument)) {
+    if (type === 'li' && ['ul', 'ol', 'menu'].includes(tag.name)) {
+      if (!tag.closing) {
+        listStack.push(tag.name);
+      } else {
+        const listIndex = listStack.lastIndexOf(tag.name);
+        if (listIndex !== -1) {
+          // The final li can end at its list boundary. Nested lists own their
+          // items, so closing an inner list must leave the outer li open.
+          while (openElements.length && openElements.at(-1).listDepth > listIndex) {
+            finishElement(tag.start);
+          }
+          listStack.length = listIndex;
+        }
+      }
+      continue;
+    }
+    if (tag.name !== type) continue;
+    if (tag.closing) {
+      if (type === 'li' && openElements.at(-1)?.listDepth !== listStack.length) continue;
+      finishElement(tag.end);
+    } else if (!tag.selfClosing || type === 'a' || type === 'span' || type === 'time') {
+      // A sibling li implicitly ends the prior item in the same list.
+      if (type === 'li' && listStack.length && openElements.at(-1)?.listDepth === listStack.length) {
+        finishElement(tag.start);
+      }
+      // Preserve link/label matching: a trailing slash does not close these
+      // non-void HTML elements before their actual end tag.
+      openElements.push({ start: tag.start, listDepth: listStack.length });
     }
   }
 
   return elements;
 }
 
+function readHtmlAttribute(source, tag, name) {
+  const attributes = source.slice(tag.attributesStart, tag.end - 1);
+  // Consume whole attributes, including quoted values, before comparing names.
+  // This keeps data-href and text such as title="href='...'" out of URL lookup.
+  const pattern = /([^\s/>=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+)))?/g;
+  for (const match of attributes.matchAll(pattern)) {
+    if (match[1].toLowerCase() === name) return match[2] ?? match[3] ?? match[4] ?? '';
+  }
+  return null;
+}
+
 function extractAnchors(visibleContent) {
-  return [...visibleContent.matchAll(/<a\b[^>]*\bhref\s*=\s*(["'])(.*?)\1[^>]*>([\s\S]*?)<\/a>/gi)]
-    .map((match) => ({ href: match[2], titleHtml: match[3] }));
+  const anchors = [];
+  let opening = null;
+  let index = 0;
+  while ((index = visibleContent.indexOf('<', index)) !== -1) {
+    const tag = readHtmlTag(visibleContent, index);
+    if (!tag) {
+      index += 1;
+      continue;
+    }
+    if (tag.name === 'a') {
+      if (tag.closing) {
+        if (opening && opening.href !== null) {
+          anchors.push({ href: opening.href, titleHtml: visibleContent.slice(opening.end, index) });
+        }
+        opening = null;
+      } else {
+        opening = { href: readHtmlAttribute(visibleContent, tag, 'href'), end: tag.end };
+      }
+    }
+    index = tag.end;
+  }
+  return anchors;
 }
 
 function extractAnnouncementCards(html, calendar) {
@@ -394,28 +524,40 @@ function extractAnnouncementCards(html, calendar) {
   const elements = ['li', 'div']
     .flatMap((type) => findBalancedElements(visibleHtml, type))
     .sort((a, b) => a.start - b.start || b.end - a.end);
-  const candidates = elements
-    .map((element) => {
-      const anchors = extractAnchors(element.content);
-      if (anchors.length !== 1) return null;
-      const date = extractPublicationDate(element.content, calendar);
-      return date ? { ...element, anchor: anchors[0], date: date.value, dateInferred: date.inferred } : null;
-    })
-    .filter(Boolean);
-
-  // Ordered starts mean any later candidate ending inside this one is a child.
-  // A reverse scan selects the innermost cards without an all-pairs search.
+  // A linked li owns its notice even when its publication date is absent.
+  // Track those boundaries before discarding undated cards, so a containing
+  // div cannot supply a footer/sibling date. Title-only divs still allow their
+  // parent card to provide its sibling date label.
   const cards = [];
   let earliestEnd = Infinity;
-  for (let index = candidates.length - 1; index >= 0; index -= 1) {
-    const candidate = candidates[index];
-    if (candidate.end < earliestEnd) cards.push(candidate);
-    earliestEnd = Math.min(earliestEnd, candidate.end);
+  let earliestLinkedListEnd = Infinity;
+  // Ordered starts allow the same linear reverse scan for both boundaries.
+  for (let index = elements.length - 1; index >= 0; index -= 1) {
+    const element = elements[index];
+    const anchors = extractAnchors(element.content);
+    if (anchors.length !== 1) continue;
+    if (element.end >= earliestLinkedListEnd) continue;
+    if (element.type === 'li') earliestLinkedListEnd = element.end;
+    const date = extractPublicationDate(element.content, calendar);
+    if (!date) continue;
+    const card = { ...element, anchor: anchors[0], date: date.value,
+      dateInferred: date.inferred, hasPublicationLabel: date.hasPublicationLabel };
+    const innerCard = cards.at(-1);
+    if (element.end < earliestEnd) {
+      cards.push(card);
+    } else if (date.hasPublicationLabel && innerCard &&
+        innerCard.start >= element.start && innerCard.end <= element.end &&
+        (!innerCard.hasPublicationLabel || (!innerCard.date && date.value))) {
+      // A title/summary div may contain a deadline. Prefer the enclosing
+      // card's publication label over that inner unlabelled date.
+      cards[cards.length - 1] = card;
+    }
+    earliestEnd = Math.min(earliestEnd, element.end);
   }
-  return cards.reverse();
+  return cards.reverse().filter(card => card.date);
 }
 
-function parseOfficialDocument(html, source, checkedAt = new Date().toISOString()) {
+function parseOfficialDocument(html, source, checkedAt = new Date().toISOString(), documentUrl = source?.url) {
   const calendar = getShanghaiYearAndMonth(checkedAt);
   const candidates = extractAnnouncementCards(html, calendar);
   const diagnostics = {
@@ -444,7 +586,8 @@ function parseOfficialDocument(html, source, checkedAt = new Date().toISOString(
 
     let url;
     try {
-      const resolvedUrl = new URL(decodeHtmlEntities(candidate.anchor.href), source.url);
+      // Resolve against the fetched page while keeping source identity and trust rules.
+      const resolvedUrl = new URL(decodeHtmlEntities(candidate.anchor.href), documentUrl);
       resolvedUrl.hash = '';
       url = resolvedUrl.href;
     } catch {
@@ -504,6 +647,7 @@ function mergeAndRankUpdates(updates, limit = 20) {
 }
 
 module.exports = {
+  PARSER_DIAGNOSTICS_VERSION,
   categorizeTitle,
   cleanText,
   isAllowedOfficialUrl,

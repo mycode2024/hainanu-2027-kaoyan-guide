@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
+const { PARSER_DIAGNOSTICS_VERSION, parseOfficialDocument, makeContentHash } = require('../src/official-scraper.cjs');
 
 test('cache restoration rejects impossible dates while retaining valid leap days', async () => {
   const { createUpdateService } = loadService();
@@ -104,6 +105,56 @@ test('a script comparison does not prevent discovery and caching of a new notice
   assert.equal(refreshed.change.newCount, 1);
   assert.equal(store.writes.length, 2);
   assert.deepEqual(store.writes[1].updates.map(item => item.url), refreshed.updates.map(item => item.url));
+});
+
+test('anchor attribute variants retain the real notice URL and title in the cache', async () => {
+  const { createUpdateService } = loadService();
+  const store = createMemoryStore();
+  const title = '2027年硕士研究生招生简章';
+  let html = `<li><a href="/info/1024/9301.htm">${title}</a><time>2026-09-29</time></li>`;
+  let currentTime = '2026-10-01T04:00:00Z';
+  const service = createUpdateService({
+    sources: [sources[0]], cacheStore: store, now: () => new Date(currentTime),
+    delayImpl: async () => {}, fetchImpl: async url => makeResponse(url, html)
+  });
+  await service.refresh();
+  html = `<li><a title="人数 > 30" href=/info/1024/9301.htm data-href="/info/1024/8000.htm">${title}</a><time>2026-09-29</time></li>`;
+  currentTime = '2026-10-01T04:10:00Z';
+  const snapshot = await service.refresh();
+  assert.equal(snapshot.status, 'fresh');
+  assert.equal(snapshot.sources[0].ok, true);
+  assert.equal(snapshot.change.newCount, 0);
+  assert.equal(snapshot.change.updatedCount, 0);
+  assert.equal(store.writes.length, 2);
+  assert.deepEqual(store.writes[1].updates.map(({ url, title, lastSeenAt }) => ({ url, title, lastSeenAt })), [{
+    url: 'https://gs.hainanu.edu.cn/info/1024/9301.htm', title, lastSeenAt: '2026-10-01T04:10:00.000Z'
+  }]);
+});
+
+test('optional li end tags keep synchronization fresh and persist newly added notices', async () => {
+  const { createUpdateService } = loadService();
+  const store = createMemoryStore();
+  const card = n => `<li><a href="/info/970${n}.htm">2027年硕士研究生招生公告${n}</a><time>2026-09-29</time>`;
+  let html = `<ul>${card(1)}</li>${card(2)}</li></ul>`;
+  let clock = '2026-10-02T04:00:00Z';
+  const service = createUpdateService({ sources: [sources[0]], cacheStore: store,
+    now: () => new Date(clock), delayImpl: async () => {}, fetchImpl: async url => makeResponse(url, html) });
+  const initial = await service.refresh();
+  assert.equal(initial.status, 'fresh');
+  html = `<ul>${card(1)}${card(2)}${card(3)}</ul>`;
+  clock = '2026-10-02T04:10:00Z';
+  const refreshed = await service.refresh();
+  assert.equal(refreshed.status, 'fresh');
+  assert.equal(refreshed.sources[0].ok, true);
+  assert.equal(refreshed.sources[0].attempts, 1);
+  assert.equal(refreshed.updates.length, 3);
+  assert.equal(refreshed.change.newCount, 1);
+  const added = refreshed.updates.find(update => update.url.endsWith('/9703.htm'));
+  assert.deepEqual(refreshed.change.newIds, [added.id]);
+  assert.equal(refreshed.updates.find(update => update.url.endsWith('/9701.htm')).discoveredAt,
+    initial.updates.find(update => update.url.endsWith('/9701.htm')).discoveredAt);
+  assert.equal(store.writes.length, 2);
+  assert.deepEqual(store.writes[1].updates, refreshed.updates);
 });
 
 test('a successful refresh combines both sources and persists a fresh snapshot', async () => {
@@ -418,6 +469,69 @@ test('a due refresh triggered by a snapshot read never publishes a past next-ref
   const snapshot = await due.promise;
 
   assert.ok(Date.parse(snapshot.nextRefreshAt) > Date.parse(snapshot.fetchedAt));
+});
+
+for (const [name, locations, finalUrl, expectedUrl, omitResponseUrl] of [
+  ['absolute redirect', ['https://gs.hainanu.edu.cn/new/list.htm'], 'https://gs.hainanu.edu.cn/new/list.htm', 'https://gs.hainanu.edu.cn/new/info/9301.htm', false],
+  ['relative redirect chain', ['../moved/list.htm', '../new/list.htm'], 'https://gs.hainanu.edu.cn/new/list.htm', 'https://gs.hainanu.edu.cn/new/info/9301.htm', false],
+  ['response without URL', ['/new/list.htm'], 'https://gs.hainanu.edu.cn/new/list.htm', 'https://gs.hainanu.edu.cn/new/info/9301.htm', true],
+  ['allowed subdomain redirect', ['https://new.gs.hainanu.edu.cn/new/list.htm'], 'https://new.gs.hainanu.edu.cn/new/list.htm', 'https://new.gs.hainanu.edu.cn/new/info/9301.htm', false]
+]) {
+  test(`redirected lists resolve and cache relative links: ${name}`, async () => {
+    const { createUpdateService } = loadService();
+    const source = { ...sources[0], url: 'https://gs.hainanu.edu.cn/old/list.htm' };
+    const store = createMemoryStore();
+    const requests = [];
+    const service = createUpdateService({
+      sources: [source], cacheStore: store, now: () => new Date('2026-10-01T04:00:00Z'),
+      fetchImpl: async url => {
+        requests.push(url);
+        const location = locations[requests.length - 1];
+        if (location) return { ok: false, status: 302, url, headers: new Headers({ location }) };
+        assert.equal(url, finalUrl);
+        return makeResponse(omitResponseUrl ? '' : url, [
+          '<li><a href="info/9301.htm">2027年硕士研究生招生简章</a><time>2026-09-29</time></li>',
+          '<li><a href="https://gs.hainanu.edu.cn/info/9302.htm">2027年硕士研究生招生目录</a><time>2026-09-28</time></li>',
+          '<li><a href="https://example.com/notice.htm">2027年硕士研究生招生公告</a><time>2026-09-27</time></li>'
+        ].join(''));
+      }
+    });
+    const snapshot = await service.refresh();
+    assert.equal(snapshot.status, 'fresh');
+    assert.equal(requests.length, locations.length + 1);
+    assert.deepEqual(snapshot.updates.map(update => update.url), [expectedUrl, 'https://gs.hainanu.edu.cn/info/9302.htm']);
+    assert.equal(snapshot.sources[0].url, source.url, 'source identity and trust scope stay configured');
+    assert.ok(snapshot.updates.every(update => update.sourceId === source.id));
+    assert.equal(store.writes.length, 1);
+    assert.deepEqual(store.writes[0].updates.map(update => update.url), [expectedUrl, 'https://gs.hainanu.edu.cn/info/9302.htm']);
+  });
+}
+
+test('redirected yearless lists verify publication dates at the resolved article URL', async () => {
+  const { createUpdateService } = loadService();
+  const source = { ...sources[0], url: 'https://gs.hainanu.edu.cn/old/list.htm' };
+  const requests = [];
+  const store = createMemoryStore();
+  const service = createUpdateService({
+    sources: [source], cacheStore: store, now: () => new Date('2026-10-01T04:00:00Z'),
+    fetchImpl: async url => {
+      requests.push(url);
+      if (url === source.url) return { ok: false, status: 302, url, headers: new Headers({ location: '/new/list.htm' }) };
+      if (url === 'https://gs.hainanu.edu.cn/new/list.htm') {
+        return makeResponse(url, '<li><a href="info/9301.htm">2027年硕士研究生招生简章</a><span>[09-29]</span></li>');
+      }
+      if (url === 'https://gs.hainanu.edu.cn/new/info/9301.htm') {
+        return makeResponse(url, '<meta name="pubdate" content="2026-09-29">');
+      }
+      return makeResponse(url, '', 404);
+    }
+  });
+  const snapshot = await service.refresh();
+  assert.equal(snapshot.status, 'fresh');
+  assert.deepEqual(requests, [source.url, 'https://gs.hainanu.edu.cn/new/list.htm', 'https://gs.hainanu.edu.cn/new/info/9301.htm']);
+  assert.equal(snapshot.updates[0].date, '2026-09-29');
+  assert.equal(snapshot.updates[0].dateVerified, true);
+  assert.equal(store.writes[0].updates[0].url, 'https://gs.hainanu.edu.cn/new/info/9301.htm');
 });
 
 test('rejects an upstream redirect that leaves Hainan University official domains', async () => {
@@ -1410,6 +1524,111 @@ test('file cache treats parseable but structurally invalid snapshots as corrupti
   assert.deepEqual(JSON.parse(await fs.readFile(backupPath, 'utf8')), trustedBackup);
 });
 
+const upgradeHtml = '<li><div class="summary"><a href="/info/9801.htm">2027年硕士研究生招生报名公告</a><p>报名截止：2026-10-24</p></div><time>2026-09-29</time></li>';
+function makeLegacyParserCache(sourceList = [sources[0]], parserVersion) {
+  const observedAt = '2026-10-02T04:00:00.000Z';
+  const diagnostics = { candidateCount: 1, relevantCount: 1, containerTypes: ['div'] };
+  return {
+    schemaVersion: 2, fetchedAt: observedAt, lastSuccessAt: observedAt,
+    sources: sourceList.map(source => ({ ...source, lastSuccessAt: observedAt, parserVersion,
+      diagnostics, lastTrustedDiagnostics: diagnostics })),
+    updates: sourceList.map(source => {
+      const notice = parseOfficialDocument(upgradeHtml, source, observedAt).updates[0];
+      return { ...notice, date: '2026-10-24', dateVerified: true,
+        contentHash: makeContentHash(notice.title, notice.category, '2026-10-24'),
+        discoveredAt: observedAt, lastSeenAt: observedAt };
+    })
+  };
+}
+
+for (const version of [undefined, 1, 999]) {
+  test(`parser cache migration corrects old dates with diagnostic version ${version}`, async () => {
+    const { createUpdateService } = loadService();
+    const legacy = makeLegacyParserCache([sources[0]], version);
+    const store = createMemoryStore(legacy);
+    const service = createUpdateService({ sources: [sources[0]], cacheStore: store,
+      now: () => new Date('2026-10-03T04:00:00Z'), delayImpl: async () => {},
+      fetchImpl: async url => makeResponse(url, upgradeHtml) });
+    const snapshot = await service.refresh();
+    assert.equal(snapshot.status, 'fresh');
+    assert.equal(snapshot.updates[0].date, '2026-09-29');
+    assert.equal(snapshot.updates[0].discoveredAt, legacy.updates[0].discoveredAt);
+    assert.equal(snapshot.change.newCount, 0);
+    assert.equal(snapshot.change.updatedCount, 1);
+    assert.ok(Number.isInteger(PARSER_DIAGNOSTICS_VERSION));
+    assert.equal(snapshot.sources[0].parserVersion, PARSER_DIAGNOSTICS_VERSION);
+    assert.deepEqual(snapshot.sources[0].lastTrustedDiagnostics.containerTypes, ['li']);
+    assert.equal(store.writes[0].sources[0].parserVersion, PARSER_DIAGNOSTICS_VERSION);
+    const repeated = await service.refresh();
+    assert.equal(repeated.status, 'fresh');
+    assert.equal(repeated.change.updatedCount, 0);
+  });
+}
+
+for (const restart of [false, true]) {
+  test(`parser cache migration restores the structure guard${restart ? ' after restart' : ''}`, async () => {
+    const { createUpdateService } = loadService();
+    const store = createMemoryStore(makeLegacyParserCache());
+    let html = upgradeHtml;
+    const options = { sources: [sources[0]], cacheStore: store, delayImpl: async () => {},
+      now: () => new Date('2026-10-03T04:00:00Z'), fetchImpl: async url => makeResponse(url, html) };
+    let service = createUpdateService(options);
+    const migrated = await service.refresh();
+    assert.equal(migrated.status, 'fresh');
+    html = upgradeHtml.replace(/^<li>/, '<div>').replace(/<\/li>$/, '</div>');
+    const nextStore = restart ? createMemoryStore(store.writes[0]) : store;
+    if (restart) service = createUpdateService({ ...options, cacheStore: nextStore });
+    const rejected = await service.refresh();
+    assert.equal(rejected.status, 'stale');
+    assert.match(rejected.sources[0].error, /容器结构/);
+    assert.equal(rejected.updates[0].date, '2026-09-29');
+    assert.equal(rejected.sources[0].parserVersion, PARSER_DIAGNOSTICS_VERSION);
+    assert.deepEqual(rejected.sources[0].lastTrustedDiagnostics.containerTypes, ['li']);
+    assert.equal(nextStore.writes.length, restart ? 0 : 1);
+  });
+}
+
+test('parser cache migration advances only successfully validated sources through a partial outage', async () => {
+  const { createUpdateService } = loadService();
+  const store = createMemoryStore(makeLegacyParserCache(sources));
+  let unavailable = true;
+  const options = { sources, cacheStore: store, delayImpl: async () => {},
+    now: () => new Date('2026-10-03T04:00:00Z'), fetchImpl: async url => {
+      if (unavailable && url === sources[1].url) return makeResponse(url, '<html>维护中</html>');
+      return makeResponse(url, upgradeHtml);
+    } };
+  const partial = await createUpdateService(options).refresh();
+  assert.equal(partial.sources[0].ok, true);
+  assert.equal(partial.sources[1].ok, false);
+  assert.equal(partial.sources[0].parserVersion, PARSER_DIAGNOSTICS_VERSION);
+  assert.equal(partial.sources[1].parserVersion, null);
+  assert.deepEqual(partial.sources[1].lastTrustedDiagnostics.containerTypes, ['div']);
+  assert.equal(partial.updates.find(update => update.sourceId === sources[1].id).date, '2026-10-24');
+  assert.equal(store.writes.length, 1);
+  unavailable = false;
+  const restarted = createUpdateService({ ...options, cacheStore: createMemoryStore(store.writes[0]) });
+  const recovered = await restarted.refresh();
+  assert.equal(recovered.status, 'fresh');
+  assert.ok(recovered.updates.every(update => update.date === '2026-09-29'));
+  assert.ok(recovered.sources.every(source => source.parserVersion === PARSER_DIAGNOSTICS_VERSION));
+});
+
+test('parser cache migration still rejects suspicious loss of recent notices', async () => {
+  const { createUpdateService } = loadService();
+  const legacy = makeLegacyParserCache();
+  legacy.updates = Array.from({ length: 5 }, (_, i) => ({ ...legacy.updates[0], id: `old-${i}`,
+    url: `https://gs.hainanu.edu.cn/info/${9801 + i}.htm`, date: '2026-09-29' }));
+  const store = createMemoryStore(legacy);
+  const snapshot = await createUpdateService({ sources: [sources[0]], cacheStore: store,
+    now: () => new Date('2026-10-03T04:00:00Z'), delayImpl: async () => {},
+    fetchImpl: async url => makeResponse(url, upgradeHtml) }).refresh();
+  assert.equal(snapshot.status, 'stale');
+  assert.match(snapshot.sources[0].error, /记录数量异常下降/);
+  assert.equal(snapshot.updates.length, 5);
+  assert.equal(snapshot.sources[0].parserVersion, null);
+  assert.equal(store.writes.length, 0);
+});
+
 test('parser diagnostics are validated, persisted per source, and included in completion summaries', async () => {
   const { createUpdateService } = loadService();
   const events = [];
@@ -1446,7 +1665,8 @@ test('invalid parser diagnostics and complete container-type drift retry then re
   const cached = {
     schemaVersion: 2, status: 'fresh', fetchedAt: '2026-08-23T04:00:00.000Z',
     lastAnySuccessAt: '2026-08-23T04:00:00.000Z', lastSuccessAt: '2026-08-23T04:00:00.000Z',
-    sources: [{ id: sources[0].id, lastSuccessAt: '2026-08-23T04:00:00.000Z', diagnostics: trustedDiagnostics, lastTrustedDiagnostics: trustedDiagnostics }],
+    sources: [{ id: sources[0].id, parserVersion: PARSER_DIAGNOSTICS_VERSION,
+      lastSuccessAt: '2026-08-23T04:00:00.000Z', diagnostics: trustedDiagnostics, lastTrustedDiagnostics: trustedDiagnostics }],
     updates: [cachedNotice]
   };
 
@@ -1540,4 +1760,146 @@ test('new-id telemetry references only retained discoveries and reports capacity
   assert.equal(snapshot.change.newCount, 120);
   assert.equal(snapshot.change.discardedNewCount, 5);
   assert.equal(snapshot.change.newIds.every((id) => retainedIds.has(id)), true);
+});
+
+for (const restart of [false, true]) {
+  test(`unchanged overflowing lists do not rediscover evicted notices${restart ? ' after restart' : ''}`, async () => {
+    const { createUpdateService } = loadService();
+    let count = 125;
+    let currentTime = '2026-10-02T04:00:00Z';
+    const makeService = store => createUpdateService({
+      sources: [sources[0]], cacheStore: store, now: () => new Date(currentTime),
+      fetchImpl: async url => makeResponse(url, Array.from({ length: count }, (_, index) =>
+        `<li><a href="/info/${index}.htm">2027年硕士研究生招生公告${index}</a><time>2026-09-29</time></li>`).join(''))
+    });
+    let store = createMemoryStore();
+    let service = makeService(store);
+    const initial = await service.refresh();
+    for (const time of ['2026-10-02T04:10:00Z', '2026-10-02T04:20:00Z']) {
+      currentTime = time;
+      if (restart) {
+        store = createMemoryStore(store.writes.at(-1));
+        service = makeService(store);
+      }
+      const snapshot = await service.refresh();
+      assert.equal(snapshot.change.newCount, 0);
+      assert.deepEqual(snapshot.change.newIds, []);
+      assert.deepEqual(snapshot.updates.map(update => update.url), initial.updates.map(update => update.url));
+      assert.ok(snapshot.updates.every(update => update.discoveredAt === '2026-10-02T04:00:00.000Z'));
+    }
+    count = 126;
+    currentTime = '2026-10-02T04:30:00Z';
+    const withNewNotice = await service.refresh();
+    const added = withNewNotice.updates.find(update => update.url === 'https://gs.hainanu.edu.cn/info/125.htm');
+    assert.ok(added);
+    assert.equal(added.discoveredAt, '2026-10-02T04:30:00.000Z');
+    assert.deepEqual(withNewNotice.change.newIds, [added.id]);
+    assert.equal(withNewNotice.updates.length, 120);
+    assert.equal(Object.hasOwn(withNewNotice, 'sourceObservations'), false);
+  });
+}
+
+test('an overflow notice promoted by an edit retains its original discovery date after restart', async () => {
+  const { createUpdateService } = loadService();
+  let promotedUrl = null;
+  const makeService = (store, time) => createUpdateService({
+    sources: [sources[0]], cacheStore: store, now: () => new Date(time),
+    fetchImpl: async url => makeResponse(url, Array.from({ length: 125 }, (_, index) => {
+      const edited = `https://gs.hainanu.edu.cn/info/${index}.htm` === promotedUrl;
+      return `<li><a href="/info/${index}.htm">2027年硕士研究生招生公告${index}${edited ? '（修订）' : ''}</a><time>${edited ? '2026-10-01' : '2026-09-29'}</time></li>`;
+    }).join(''))
+  });
+  const store = createMemoryStore();
+  const initial = await makeService(store, '2026-10-02T04:00:00Z').refresh();
+  promotedUrl = Array.from({ length: 125 }, (_, index) => `https://gs.hainanu.edu.cn/info/${index}.htm`)
+    .find(url => !initial.updates.some(update => update.url === url));
+  const snapshot = await makeService(createMemoryStore(store.writes[0]), '2026-10-02T04:10:00Z').refresh();
+  const edited = snapshot.updates.find(update => update.url === promotedUrl);
+  assert.ok(edited);
+  assert.equal(snapshot.change.newCount, 0);
+  assert.equal(edited.discoveredAt, '2026-10-02T04:00:00.000Z');
+  assert.equal(edited.updatedAt, '2026-10-02T04:10:00.000Z');
+  assert.deepEqual(snapshot.change.updatedIds, [edited.id]);
+});
+
+test('overflow discovery state survives a partial-source outage and cache restoration', async () => {
+  const { createUpdateService } = loadService();
+  let offline = false;
+  let currentTime = '2026-10-02T04:00:00Z';
+  const makeService = store => createUpdateService({
+    sources, cacheStore: store, now: () => new Date(currentTime), delayImpl: async () => {},
+    fetchImpl: async url => {
+      if (new URL(url).hostname === 'cs.hainanu.edu.cn') return makeResponse(url, htmlByHost['cs.hainanu.edu.cn']);
+      if (offline) throw new Error('offline');
+      return makeResponse(url, Array.from({ length: 125 }, (_, index) =>
+        `<li><a href="/info/${index}.htm">2027年硕士研究生招生公告${index}</a><time>2026-09-29</time></li>`).join(''));
+    }
+  });
+  const store = createMemoryStore();
+  const service = makeService(store);
+  await service.refresh();
+  offline = true;
+  currentTime = '2026-10-02T04:10:00Z';
+  assert.equal((await service.refresh()).status, 'stale');
+  offline = false;
+  currentTime = '2026-10-02T04:20:00Z';
+  const recovered = await makeService(createMemoryStore(store.writes.at(-1))).refresh();
+  assert.equal(recovered.status, 'fresh');
+  assert.equal(recovered.change.newCount, 0);
+  assert.ok(recovered.updates.filter(update => update.sourceId === sources[0].id)
+    .every(update => update.discoveredAt === '2026-10-02T04:00:00.000Z'));
+});
+
+test('edits outside the display cap do not produce dangling updated IDs', async () => {
+  const { createUpdateService } = loadService();
+  let edited = false;
+  let currentTime = '2026-10-02T04:00:00Z';
+  const service = createUpdateService({
+    sources: [sources[0]], now: () => new Date(currentTime),
+    fetchImpl: async url => makeResponse(url, Array.from({ length: 125 }, (_, index) =>
+      `<li><a href="/info/${index}.htm">2027年硕士研究生招生公告${index}${edited && index === 124 ? '（修订）' : ''}</a><time>${index === 124 ? '2026-08-01' : '2026-09-29'}</time></li>`).join(''))
+  });
+  const initial = await service.refresh();
+  assert.equal(initial.updates.some(update => update.url.endsWith('/124.htm')), false);
+  edited = true;
+  currentTime = '2026-10-02T04:10:00Z';
+  const snapshot = await service.refresh();
+  assert.equal(snapshot.change.newCount, 0);
+  assert.equal(snapshot.change.updatedCount, 0);
+  assert.deepEqual(snapshot.change.updatedIds, []);
+});
+
+test('failed cache writes preserve overflow discovery state for the running service', async () => {
+  const { createUpdateService } = loadService();
+  let time = '2026-10-02T04:00:00Z';
+  const service = createUpdateService({
+    sources: [sources[0]], now: () => new Date(time),
+    cacheStore: { load: async () => null, save: async () => { throw new Error('disk full'); } },
+    fetchImpl: async url => makeResponse(url, Array.from({ length: 125 }, (_, index) =>
+      `<li><a href="/info/${index}.htm">2027年硕士研究生招生公告${index}</a><time>2026-09-29</time></li>`).join(''))
+  });
+  await service.refresh();
+  time = '2026-10-02T04:10:00Z';
+  const snapshot = await service.refresh();
+  assert.equal(snapshot.status, 'stale');
+  assert.match(snapshot.error, /缓存写入失败/);
+  assert.equal(snapshot.change.newCount, 0);
+});
+
+test('invalid cached observations cannot suppress a real new notice', async () => {
+  const { createUpdateService } = loadService();
+  const url = 'https://gs.hainanu.edu.cn/info/9301.htm';
+  const service = createUpdateService({
+    sources: [sources[0]], now: () => new Date('2026-10-02T04:00:00Z'),
+    cacheStore: createMemoryStore({ updates: [], sourceObservations: [
+      null, {}, { sourceId: sources[0].id, url, discoveredAt: 'invalid' },
+      { sourceId: sources[1].id, url, discoveredAt: '2026-10-01T04:00:00Z' },
+      { sourceId: sources[0].id, url: 'https://example.com/info/9301.htm', discoveredAt: '2026-10-01T04:00:00Z' }
+    ] }),
+    fetchImpl: async requested => makeResponse(requested, '<li><a href="/info/9301.htm">2027年硕士研究生招生简章</a><time>2026-09-29</time></li>')
+  });
+  const snapshot = await service.refresh();
+  assert.equal(snapshot.status, 'fresh');
+  assert.equal(snapshot.change.newCount, 1);
+  assert.equal(snapshot.updates[0].discoveredAt, '2026-10-02T04:00:00.000Z');
 });

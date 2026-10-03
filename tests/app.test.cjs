@@ -921,7 +921,9 @@ test('normalizes the updates API and drops malformed or non-official records', (
     category: '简章目录',
     isTarget2027: true,
     isImportant: true,
-    discoveredAt: null
+    discoveredAt: null,
+    lastSeenAt: null,
+    updatedAt: null
   }]);
 });
 
@@ -1254,6 +1256,78 @@ test('prioritizes cache-backup recovery over unavailable-source messaging', asyn
     assert.equal(page.elements.statusTitle.textContent, '已从缓存备份恢复，等待验证');
     assert.match(page.elements.statusDetail.textContent, /主缓存损坏，已从备份恢复/);
     assert.doesNotMatch(page.elements.statusTitle.textContent, /不可用/);
+  });
+});
+
+for (const [name, oldClocks, newClocks] of [
+  ['latest successful observation', { lastSeenAt: '2026-10-02T04:00:00Z' }, { lastSeenAt: '2026-10-02T04:10:00Z' }],
+  ['revision breaks observation tie', { lastSeenAt: '2026-10-02T04:10:00Z', updatedAt: '2026-10-01T04:00:00Z' }, { lastSeenAt: '2026-10-02T04:10:00Z', updatedAt: '2026-10-02T04:10:00Z' }],
+  ['missing observation falls back to revision', {}, { updatedAt: '2026-10-02T04:10:00Z' }],
+  ['legacy discovery fallback', { discoveredAt: '2026-10-02T04:00:00Z' }, { discoveredAt: '2026-10-02T04:10:00Z' }],
+  ['offset timestamps compare by instant', { lastSeenAt: '2026-10-02T13:00:00+08:00' }, { lastSeenAt: '2026-10-02T06:00:00Z' }],
+  ['invalid clocks cannot outrank valid clocks', { lastSeenAt: 'bad-date', updatedAt: 42 }, { lastSeenAt: '2026-10-02T04:10:00Z' }]
+]) {
+  test(`shared notice selects current content: ${name}`, () => {
+    const { aggregateUpdatesForDisplay, normalizeUpdatesPayload } = loadApp();
+    const records = [
+      { id: 'old', sourceId: 'feed-a', source: '来源 A', title: '旧版标题', date: '2026-09-28', category: '招生动态', ...oldClocks },
+      { id: 'new', sourceId: 'feed-z', source: '来源 Z', title: '修订版标题', date: '2026-09-29', category: '简章目录', ...newClocks }
+    ].map(record => ({ ...record, url: 'https://gs.hainanu.edu.cn/info/9601.htm' }));
+    for (const updates of [records, records.slice().reverse()]) {
+      const normalized = normalizeUpdatesPayload({ updates });
+      const [displayed] = aggregateUpdatesForDisplay(normalized.updates, new Set(['new']));
+      assert.equal(displayed.title, '修订版标题');
+      assert.equal(displayed.date, '2026-09-29');
+      assert.equal(displayed.category, '简章目录');
+      assert.deepEqual(displayed.sourceNames, ['来源 A', '来源 Z']);
+      assert.deepEqual(displayed.memberIds, ['old', 'new']);
+      assert.equal(displayed.isNew, true);
+    }
+  });
+}
+
+test('shared notice clock ties keep a stable primary for legacy caches', () => {
+  const { aggregateUpdatesForDisplay } = loadApp();
+  const records = ['a', 'z'].map(sourceId => ({ id: sourceId, sourceId, source: sourceId,
+    title: sourceId, date: '2026-09-29', url: 'https://gs.hainanu.edu.cn/info/9601.htm' }));
+  for (const clocks of [{}, { lastSeenAt: '2026-10-02T04:00:00Z' }]) {
+    const updates = records.map(record => ({ ...record, ...clocks }));
+    assert.equal(aggregateUpdatesForDisplay(updates)[0].title, 'a');
+    assert.deepEqual(aggregateUpdatesForDisplay(updates.slice().reverse()), aggregateUpdatesForDisplay(updates));
+  }
+});
+
+test('a partial-source refresh renders the revised shared notice instead of the offline copy', async () => {
+  const { createUpdateService } = require('../src/update-service.cjs');
+  const sources = [
+    { id: 'feed-a', name: '来源 A', url: 'https://gs.hainanu.edu.cn/a/list.htm' },
+    { id: 'feed-z', name: '来源 Z', url: 'https://gs.hainanu.edu.cn/z/list.htm' }
+  ];
+  let revised = false;
+  const service = createUpdateService({
+    sources, now: () => new Date(revised ? '2026-10-02T04:10:00Z' : '2026-10-02T04:00:00Z'),
+    delayImpl: async () => {},
+    fetchImpl: async url => {
+      if (revised && url === sources[0].url) throw new Error('offline');
+      const title = revised ? '2027年硕士研究生招生简章（修订版）' : '2027年硕士研究生招生简章';
+      return { ok: true, status: 200, url, headers: new Headers({ 'content-type': 'text/html' }),
+        text: async () => `<li><a href="https://gs.hainanu.edu.cn/info/9601.htm">${title}</a><time>2026-09-29</time></li>` };
+    }
+  });
+  const initial = await service.refresh();
+  revised = true;
+  const refreshed = await service.refresh();
+  assert.equal(refreshed.status, 'stale');
+  await withFakePage({}, async page => {
+    page.settle(page.fetchCalls[0], initial);
+    await page.flush();
+    page.elements.refresh.dispatch('click');
+    page.settle(page.fetchCalls[1], refreshed);
+    await page.flush();
+    assert.equal(page.elements.updatesList.children.length, 1);
+    assert.match(collectText(page.elements.updatesList), /2027年硕士研究生招生简章（修订版）/);
+    assert.match(collectText(page.elements.updatesList), /来源 A、来源 Z/);
+    assert.equal(findElementsByClass(page.elements.updatesList, 'official-update-new').length, 0);
   });
 });
 
