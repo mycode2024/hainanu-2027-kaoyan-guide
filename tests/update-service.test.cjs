@@ -167,7 +167,7 @@ test('a successful refresh combines both sources and persists a fresh snapshot',
     sources,
     fetchImpl,
     cacheStore: store,
-    now: () => new Date('2026-08-22T04:00:00.000Z'),
+    now: () => new Date('2026-10-22T04:00:00.000Z'),
     refreshIntervalMs: 21_600_000
   });
 
@@ -178,8 +178,8 @@ test('a successful refresh combines both sources and persists a fresh snapshot',
   assert.deepEqual(snapshot.freshness, {
     state: 'fresh', overdueSourceIds: [], worstSourceAgeMs: 0, ageMs: 0, isOverdue: false
   });
-  assert.equal(snapshot.lastSuccessAt, '2026-08-22T04:00:00.000Z');
-  assert.equal(snapshot.nextRefreshAt, '2026-08-22T10:00:00.000Z');
+  assert.equal(snapshot.lastSuccessAt, '2026-10-22T04:00:00.000Z');
+  assert.equal(snapshot.nextRefreshAt, '2026-10-22T10:00:00.000Z');
   assert.deepEqual(snapshot.sources.map(({ id, ok }) => ({ id, ok })), [
     { id: 'hnu-graduate', ok: true },
     { id: 'hnu-computer', ok: true }
@@ -196,9 +196,9 @@ test('a partial source failure retains that source cache and marks the snapshot 
   const { createUpdateService } = loadService();
   const cached = {
     status: 'fresh',
-    fetchedAt: '2026-08-21T04:00:00.000Z',
-    lastSuccessAt: '2026-08-21T04:00:00.000Z',
-    nextRefreshAt: '2026-08-21T10:00:00.000Z',
+    fetchedAt: '2026-10-21T04:00:00.000Z',
+    lastSuccessAt: '2026-10-21T04:00:00.000Z',
+    nextRefreshAt: '2026-10-21T10:00:00.000Z',
     refreshIntervalMs: 21_600_000,
     sources: [],
     updates: [{
@@ -214,14 +214,14 @@ test('a partial source failure retains that source cache and marks the snapshot 
   };
   const service = createUpdateService({
     sources, fetchImpl, cacheStore: store,
-    now: () => new Date('2026-08-22T04:00:00.000Z')
+    now: () => new Date('2026-10-22T04:00:00.000Z')
   });
 
   await service.initialize();
   const snapshot = await service.refresh();
 
   assert.equal(snapshot.status, 'stale');
-  assert.equal(snapshot.lastSuccessAt, '2026-08-22T04:00:00.000Z');
+  assert.equal(snapshot.lastSuccessAt, '2026-10-22T04:00:00.000Z');
   assert.deepEqual(snapshot.sources.map(({ id, ok }) => ({ id, ok })), [
     { id: 'hnu-graduate', ok: true },
     { id: 'hnu-computer', ok: false }
@@ -236,8 +236,8 @@ test('a partial source failure retains that source cache and marks the snapshot 
 test('an all-source failure serves the last success without overwriting its disk cache', async () => {
   const { createUpdateService } = loadService();
   const cached = {
-    status: 'fresh', fetchedAt: '2026-08-21T04:00:00.000Z', lastSuccessAt: '2026-08-21T04:00:00.000Z',
-    nextRefreshAt: '2026-08-21T10:00:00.000Z', refreshIntervalMs: 21_600_000, sources: [],
+    status: 'fresh', fetchedAt: '2026-10-21T04:00:00.000Z', lastSuccessAt: '2026-10-21T04:00:00.000Z',
+    nextRefreshAt: '2026-10-21T10:00:00.000Z', refreshIntervalMs: 21_600_000, sources: [],
     updates: [{ id: 'last-good', title: '海南大学2027年硕士研究生招生专业目录', date: '2026-09-25', url: 'https://gs.hainanu.edu.cn/info/1024/9000.htm', source: '海南大学研究生院', sourceId: 'hnu-graduate', category: '简章目录', isTarget2027: true, isImportant: true }]
   };
   const store = createMemoryStore(cached);
@@ -245,14 +245,14 @@ test('an all-source failure serves the last success without overwriting its disk
     sources,
     fetchImpl: async () => { throw new Error('timeout'); },
     cacheStore: store,
-    now: () => new Date('2026-08-22T04:00:00.000Z')
+    now: () => new Date('2026-10-22T04:00:00.000Z')
   });
 
   await service.initialize();
   const snapshot = await service.refresh();
 
   assert.equal(snapshot.status, 'stale');
-  assert.equal(snapshot.lastSuccessAt, '2026-08-21T04:00:00.000Z');
+  assert.equal(snapshot.lastSuccessAt, '2026-10-21T04:00:00.000Z');
   assert.deepEqual(snapshot.updates.map((item) => item.id), ['last-good']);
   assert.match(snapshot.error, /2 个官方来源暂时不可用/);
   assert.equal(store.writes.length, 0);
@@ -328,8 +328,8 @@ test('an HTTP 200 page with no recognizable notices is treated as a source failu
   const { createUpdateService } = loadService();
   const singleSource = [sources[0]];
   const cached = {
-    status: 'fresh', fetchedAt: '2026-08-21T04:00:00.000Z', lastSuccessAt: '2026-08-21T04:00:00.000Z',
-    nextRefreshAt: '2026-08-21T10:00:00.000Z', refreshIntervalMs: 21_600_000, sources: [],
+    status: 'fresh', fetchedAt: '2026-10-21T04:00:00.000Z', lastSuccessAt: '2026-10-21T04:00:00.000Z',
+    nextRefreshAt: '2026-10-21T10:00:00.000Z', refreshIntervalMs: 21_600_000, sources: [],
     updates: [{ id: 'last-good', title: '海南大学2027年硕士研究生招生专业目录', date: '2026-09-25', url: 'https://gs.hainanu.edu.cn/info/1024/9000.htm', source: '海南大学研究生院', sourceId: 'hnu-graduate', category: '简章目录', isTarget2027: true, isImportant: true }]
   };
   const store = createMemoryStore(cached);
@@ -338,7 +338,7 @@ test('an HTTP 200 page with no recognizable notices is treated as a source failu
     sources: singleSource,
     fetchImpl: async (url) => { calls += 1; return makeResponse(url, '<html><body>网站改版中</body></html>'); },
     cacheStore: store,
-    now: () => new Date('2026-08-22T04:00:00.000Z'),
+    now: () => new Date('2026-10-22T04:00:00.000Z'),
     delayImpl: async () => {},
     randomImpl: () => 0
   });
@@ -358,7 +358,7 @@ test('an HTTP 200 page with no recognizable notices is treated as a source failu
 test('manual refresh preserves the actual next automatic timer deadline', async () => {
   const { createUpdateService } = loadService();
   const store = createMemoryStore();
-  let currentTime = new Date('2026-08-22T04:00:00.000Z');
+  let currentTime = new Date('2026-10-22T04:00:00.000Z');
   let timerCallback;
   const service = createUpdateService({
     sources,
@@ -373,16 +373,16 @@ test('manual refresh preserves the actual next automatic timer deadline', async 
   await service.initialize();
   service.startAutoRefresh();
   assert.equal(typeof timerCallback, 'function');
-  assert.equal((await service.refresh()).nextRefreshAt, '2026-08-22T10:00:00.000Z');
+  assert.equal((await service.refresh()).nextRefreshAt, '2026-10-22T10:00:00.000Z');
 
-  currentTime = new Date('2026-08-22T05:00:00.000Z');
-  assert.equal((await service.refresh()).nextRefreshAt, '2026-08-22T10:00:00.000Z');
+  currentTime = new Date('2026-10-22T05:00:00.000Z');
+  assert.equal((await service.refresh()).nextRefreshAt, '2026-10-22T10:00:00.000Z');
 });
 
 test('a refresh finishing after an automatic tick keeps the next automatic deadline', async () => {
   const { createUpdateService } = loadService();
   const store = createMemoryStore();
-  let currentTime = new Date('2026-08-22T04:00:00.000Z');
+  let currentTime = new Date('2026-10-22T04:00:00.000Z');
   let timerCallback;
   let releaseFetch;
   const service = createUpdateService({
@@ -402,16 +402,16 @@ test('a refresh finishing after an automatic tick keeps the next automatic deadl
   const refresh = service.refresh();
   await new Promise((resolve) => setImmediate(resolve));
 
-  currentTime = new Date('2026-08-22T10:00:00.000Z');
+  currentTime = new Date('2026-10-22T10:00:00.000Z');
   timerCallback();
   releaseFetch();
   const snapshot = await refresh;
 
-  assert.equal(snapshot.nextRefreshAt, '2026-08-22T16:00:00.000Z');
+  assert.equal(snapshot.nextRefreshAt, '2026-10-22T16:00:00.000Z');
 });
 test('a refresh finishing after a cache-write overlap keeps the next automatic deadline', async () => {
   const { createUpdateService } = loadService();
-  let currentTime = new Date('2026-08-22T04:00:00.000Z');
+  let currentTime = new Date('2026-10-22T04:00:00.000Z');
   let timerCallback;
   let releaseSave;
   const service = createUpdateService({
@@ -435,18 +435,18 @@ test('a refresh finishing after a cache-write overlap keeps the next automatic d
   await new Promise((resolve) => setImmediate(resolve));
 
   assert.equal(typeof releaseSave, 'function');
-  currentTime = new Date('2026-08-22T10:00:00.000Z');
+  currentTime = new Date('2026-10-22T10:00:00.000Z');
   timerCallback();
   releaseSave();
   const snapshot = await refresh;
 
-  assert.equal(snapshot.nextRefreshAt, '2026-08-22T16:00:00.000Z');
+  assert.equal(snapshot.nextRefreshAt, '2026-10-22T16:00:00.000Z');
 });
 
 test('a due refresh triggered by a snapshot read never publishes a past next-refresh deadline', async () => {
   const { createUpdateService } = loadService();
   const store = createMemoryStore();
-  let currentTime = new Date('2026-08-22T04:00:00.000Z');
+  let currentTime = new Date('2026-10-22T04:00:00.000Z');
   let timerCallback;
   const service = createUpdateService({
     sources,
@@ -463,7 +463,7 @@ test('a due refresh triggered by a snapshot read never publishes a past next-ref
   assert.equal(typeof timerCallback, 'function');
 
   // The clock passes the timer deadline before the tick has a chance to run.
-  currentTime = new Date('2026-08-22T11:00:00.000Z');
+  currentTime = new Date('2026-10-22T11:00:00.000Z');
   const due = service.refreshIfDue();
   assert.equal(due.started, true);
   const snapshot = await due.promise;
@@ -596,7 +596,7 @@ test('rejects a declared oversized response before buffering its body', async ()
 test('sanitizes malformed cache entries before combining a partial refresh', async () => {
   const { createUpdateService } = loadService();
   const malformedCache = {
-    status: 'fresh', fetchedAt: 'not-a-date', lastSuccessAt: '2026-08-21T04:00:00.000Z',
+    status: 'fresh', fetchedAt: 'not-a-date', lastSuccessAt: '2026-10-21T04:00:00.000Z',
     nextRefreshAt: null, refreshIntervalMs: 'wrong', sources: 'wrong',
     updates: [
       null,
@@ -612,7 +612,7 @@ test('sanitizes malformed cache entries before combining a partial refresh', asy
       return makeResponse(url, htmlByHost['gs.hainanu.edu.cn']);
     },
     cacheStore: store,
-    now: () => new Date('2026-08-22T04:00:00.000Z')
+    now: () => new Date('2026-10-22T04:00:00.000Z')
   });
 
   await service.initialize();
@@ -691,7 +691,7 @@ test('retries one transient source failure and records the successful second att
       return makeResponse(url, htmlByHost['gs.hainanu.edu.cn']);
     },
     cacheStore: createMemoryStore(),
-    now: () => new Date('2026-08-23T04:00:00.000Z'),
+    now: () => new Date('2026-10-23T04:00:00.000Z'),
     delayImpl: async () => {}
   });
 
@@ -700,14 +700,14 @@ test('retries one transient source failure and records the successful second att
 
   assert.equal(snapshot.status, 'fresh');
   assert.equal(snapshot.sources[0].attempts, 2);
-  assert.equal(snapshot.sources[0].lastSuccessAt, '2026-08-23T04:00:00.000Z');
-  assert.equal(snapshot.nextRefreshAt, '2026-08-23T04:10:00.000Z');
+  assert.equal(snapshot.sources[0].lastSuccessAt, '2026-10-23T04:00:00.000Z');
+  assert.equal(snapshot.nextRefreshAt, '2026-10-23T04:10:00.000Z');
   assert.equal(attempts, 2);
 });
 
 test('preserves discovery time and reports only genuinely new notice ids on later refreshes', async () => {
   const { createUpdateService } = loadService();
-  let currentTime = new Date('2026-08-23T04:00:00.000Z');
+  let currentTime = new Date('2026-10-23T04:00:00.000Z');
   const store = createMemoryStore();
   const service = createUpdateService({
     sources: [sources[0]],
@@ -720,30 +720,30 @@ test('preserves discovery time and reports only genuinely new notice ids on late
   const first = await service.refresh();
   const noticeId = first.updates[0].id;
   assert.equal(first.schemaVersion, 2);
-  assert.equal(first.updates[0].discoveredAt, '2026-08-23T04:00:00.000Z');
+  assert.equal(first.updates[0].discoveredAt, '2026-10-23T04:00:00.000Z');
   assert.deepEqual(first.change, {
     newCount: 1,
     newIds: [noticeId],
     updatedCount: 0,
     updatedIds: [],
-    changedAt: '2026-08-23T04:00:00.000Z'
+    changedAt: '2026-10-23T04:00:00.000Z'
   });
 
-  currentTime = new Date('2026-08-23T05:00:00.000Z');
+  currentTime = new Date('2026-10-23T05:00:00.000Z');
   const second = await service.refresh();
-  assert.equal(second.updates[0].discoveredAt, '2026-08-23T04:00:00.000Z');
+  assert.equal(second.updates[0].discoveredAt, '2026-10-23T04:00:00.000Z');
   assert.deepEqual(second.change, {
     newCount: 0,
     newIds: [],
     updatedCount: 0,
     updatedIds: [],
-    changedAt: '2026-08-23T04:00:00.000Z'
+    changedAt: '2026-10-23T04:00:00.000Z'
   });
 });
 
 test('marks an overdue snapshot and coalesces repeated due-refresh checks', async () => {
   const { createUpdateService } = loadService();
-  let currentTime = new Date('2026-08-23T04:00:00.000Z');
+  let currentTime = new Date('2026-10-23T04:00:00.000Z');
   let fetchCalls = 0;
   let releaseDueFetch;
   const dueGate = new Promise((resolve) => { releaseDueFetch = resolve; });
@@ -760,7 +760,7 @@ test('marks an overdue snapshot and coalesces repeated due-refresh checks', asyn
 
   await service.initialize();
   await service.refresh();
-  currentTime = new Date('2026-08-23T06:00:00.000Z');
+  currentTime = new Date('2026-10-23T06:00:00.000Z');
 
   assert.deepEqual(service.getSnapshot().freshness, {
     state: 'overdue',
@@ -1082,7 +1082,7 @@ test('every current-refresh discovery survives the 120 item capacity cap', async
       schemaVersion: 2, fetchedAt: '2026-08-23T04:00:00.000Z', lastSuccessAt: '2026-08-23T04:00:00.000Z',
       sources: [{ id: sources[1].id, lastSuccessAt: '2026-08-23T04:00:00.000Z' }], updates: cachedUpdates
     }),
-    now: () => new Date('2026-08-24T04:00:00.000Z'),
+    now: () => new Date('2026-12-31T04:00:00.000Z'),
     delayImpl: async () => {}
   });
 
@@ -1120,7 +1120,7 @@ test('capacity identity keeps the same normalized URL from distinct sources', as
       schemaVersion: 2, fetchedAt: '2026-08-23T04:00:00.000Z', lastSuccessAt: '2026-08-23T04:00:00.000Z',
       sources: [{ id: sources[1].id, lastSuccessAt: '2026-08-23T04:00:00.000Z' }], updates: cachedUpdates
     }),
-    now: () => new Date('2026-08-24T04:00:00.000Z'),
+    now: () => new Date('2026-12-31T04:00:00.000Z'),
     delayImpl: async () => {},
     randomImpl: () => 0
   });
@@ -1153,7 +1153,7 @@ test('HTTP 429 honors a bounded Retry-After delay and records the actual delay',
       return makeResponse(url, htmlByHost['gs.hainanu.edu.cn']);
     },
     cacheStore: createMemoryStore(),
-    now: () => new Date('2026-08-24T04:00:00.000Z'),
+    now: () => new Date('2026-10-24T04:00:00.000Z'),
     delayImpl: async (milliseconds) => { delays.push(milliseconds); },
     randomImpl: () => 0
   });
@@ -1171,7 +1171,7 @@ test('HTTP 429 distinguishes missing, HTTP-date, and explicit zero Retry-After v
   const { createUpdateService } = loadService();
   const cases = [
     { name: 'missing header uses configured delay', retryAfter: undefined, expected: 625 },
-    { name: 'HTTP-date uses delta from checked time', retryAfter: 'Mon, 24 Aug 2026 04:00:03 GMT', expected: 3_000 },
+    { name: 'HTTP-date uses delta from checked time', retryAfter: 'Sat, 24 Oct 2026 04:00:03 GMT', expected: 3_000 },
     { name: 'explicit zero retries immediately', retryAfter: '0', expected: 0 }
   ];
 
@@ -1191,7 +1191,7 @@ test('HTTP 429 distinguishes missing, HTTP-date, and explicit zero Retry-After v
           return makeResponse(url, htmlByHost['gs.hainanu.edu.cn']);
         },
         cacheStore: createMemoryStore(),
-        now: () => new Date('2026-08-24T04:00:00.000Z'),
+        now: () => new Date('2026-10-24T04:00:00.000Z'),
         retryDelayMs: 625,
         delayImpl: async (milliseconds) => { delays.push(milliseconds); },
         randomImpl: () => 0
@@ -1288,7 +1288,7 @@ test('recovered cache never lets a corrupt primary overwrite the only trusted ba
 
 test('refresh completion events and success clocks distinguish partial from all-source success', async () => {
   const { createUpdateService } = loadService();
-  let currentTime = new Date('2026-08-24T04:00:00.000Z');
+  let currentTime = new Date('2026-10-24T04:00:00.000Z');
   let computerFails = true;
   const events = [];
   const service = createUpdateService({
@@ -1313,8 +1313,8 @@ test('refresh completion events and success clocks distinguish partial from all-
     newCount: 0, newIds: [], updatedCount: 0, updatedIds: [], changedAt: null
   });
   const partial = await service.refresh();
-  assert.equal(partial.lastAttemptAt, '2026-08-24T04:00:00.000Z');
-  assert.equal(partial.lastAnySuccessAt, '2026-08-24T04:00:00.000Z');
+  assert.equal(partial.lastAttemptAt, '2026-10-24T04:00:00.000Z');
+  assert.equal(partial.lastAnySuccessAt, '2026-10-24T04:00:00.000Z');
   assert.equal(partial.lastSuccessAt, partial.lastAnySuccessAt);
   assert.equal(partial.lastAllSuccessAt, null);
   assert.deepEqual(events[0], {
@@ -1330,11 +1330,11 @@ test('refresh completion events and success clocks distinguish partial from all-
   });
 
   computerFails = false;
-  currentTime = new Date('2026-08-24T05:00:00.000Z');
+  currentTime = new Date('2026-10-24T05:00:00.000Z');
   const complete = await service.refresh();
-  assert.equal(complete.lastAttemptAt, '2026-08-24T05:00:00.000Z');
-  assert.equal(complete.lastAnySuccessAt, '2026-08-24T05:00:00.000Z');
-  assert.equal(complete.lastAllSuccessAt, '2026-08-24T05:00:00.000Z');
+  assert.equal(complete.lastAttemptAt, '2026-10-24T05:00:00.000Z');
+  assert.equal(complete.lastAnySuccessAt, '2026-10-24T05:00:00.000Z');
+  assert.equal(complete.lastAllSuccessAt, '2026-10-24T05:00:00.000Z');
   assert.equal(events.length, 2);
   assert.equal(events[1].status, 'fresh');
   assert.equal(events[1].cacheSaved, true);
@@ -1524,7 +1524,7 @@ test('file cache treats parseable but structurally invalid snapshots as corrupti
   assert.deepEqual(JSON.parse(await fs.readFile(backupPath, 'utf8')), trustedBackup);
 });
 
-const upgradeHtml = '<li><div class="summary"><a href="/info/9801.htm">2027年硕士研究生招生报名公告</a><p>报名截止：2026-10-24</p></div><time>2026-09-29</time></li>';
+const upgradeHtml = '<li><div class="summary"><a href="/info/9801.htm">2027年硕士研究生招生报名公告</a><p>报名截止：2026-10-02</p></div><time>2026-09-29</time></li>';
 function makeLegacyParserCache(sourceList = [sources[0]], parserVersion) {
   const observedAt = '2026-10-02T04:00:00.000Z';
   const diagnostics = { candidateCount: 1, relevantCount: 1, containerTypes: ['div'] };
@@ -1534,8 +1534,8 @@ function makeLegacyParserCache(sourceList = [sources[0]], parserVersion) {
       diagnostics, lastTrustedDiagnostics: diagnostics })),
     updates: sourceList.map(source => {
       const notice = parseOfficialDocument(upgradeHtml, source, observedAt).updates[0];
-      return { ...notice, date: '2026-10-24', dateVerified: true,
-        contentHash: makeContentHash(notice.title, notice.category, '2026-10-24'),
+      return { ...notice, date: '2026-10-02', dateVerified: true,
+        contentHash: makeContentHash(notice.title, notice.category, '2026-10-02'),
         discoveredAt: observedAt, lastSeenAt: observedAt };
     })
   };
@@ -1603,7 +1603,7 @@ test('parser cache migration advances only successfully validated sources throug
   assert.equal(partial.sources[0].parserVersion, PARSER_DIAGNOSTICS_VERSION);
   assert.equal(partial.sources[1].parserVersion, null);
   assert.deepEqual(partial.sources[1].lastTrustedDiagnostics.containerTypes, ['div']);
-  assert.equal(partial.updates.find(update => update.sourceId === sources[1].id).date, '2026-10-24');
+  assert.equal(partial.updates.find(update => update.sourceId === sources[1].id).date, '2026-10-02');
   assert.equal(store.writes.length, 1);
   unavailable = false;
   const restarted = createUpdateService({ ...options, cacheStore: createMemoryStore(store.writes[0]) });
@@ -1663,10 +1663,10 @@ test('invalid parser diagnostics and complete container-type drift retry then re
   };
   const trustedDiagnostics = { candidateCount: 2, relevantCount: 1, containerTypes: ['li'] };
   const cached = {
-    schemaVersion: 2, status: 'fresh', fetchedAt: '2026-08-23T04:00:00.000Z',
-    lastAnySuccessAt: '2026-08-23T04:00:00.000Z', lastSuccessAt: '2026-08-23T04:00:00.000Z',
+    schemaVersion: 2, status: 'fresh', fetchedAt: '2026-10-23T04:00:00.000Z',
+    lastAnySuccessAt: '2026-10-23T04:00:00.000Z', lastSuccessAt: '2026-10-23T04:00:00.000Z',
     sources: [{ id: sources[0].id, parserVersion: PARSER_DIAGNOSTICS_VERSION,
-      lastSuccessAt: '2026-08-23T04:00:00.000Z', diagnostics: trustedDiagnostics, lastTrustedDiagnostics: trustedDiagnostics }],
+      lastSuccessAt: '2026-10-23T04:00:00.000Z', diagnostics: trustedDiagnostics, lastTrustedDiagnostics: trustedDiagnostics }],
     updates: [cachedNotice]
   };
 
@@ -1694,7 +1694,7 @@ test('invalid parser diagnostics and complete container-type drift retry then re
         fetchImpl: async (url) => makeResponse(url, '<html></html>'),
         parseDocument() { parseCalls += 1; return fixture.parsed; },
         cacheStore: store,
-        now: () => new Date('2026-08-24T04:00:00.000Z'),
+        now: () => new Date('2026-10-24T04:00:00.000Z'),
         delayImpl: async () => {}, randomImpl: () => 0
       });
 
@@ -1706,7 +1706,7 @@ test('invalid parser diagnostics and complete container-type drift retry then re
       assert.equal(snapshot.sources[0].ok, false);
       assert.equal(snapshot.sources[0].degraded, true);
       assert.match(snapshot.sources[0].error, fixture.error);
-      assert.equal(snapshot.sources[0].lastSuccessAt, '2026-08-23T04:00:00.000Z');
+      assert.equal(snapshot.sources[0].lastSuccessAt, '2026-10-23T04:00:00.000Z');
       assert.deepEqual(snapshot.sources[0].lastTrustedDiagnostics, trustedDiagnostics);
       assert.deepEqual(snapshot.updates.map((update) => update.id), ['trusted-notice']);
       assert.equal(store.writes.length, 0);
@@ -1718,7 +1718,7 @@ test('missing history clears a transient updated marker', async () => {
   const { createUpdateService } = loadService();
   let html = '<li><a href="../info/1024/9400.htm">海南大学2027年硕士研究生招生简章（修订）</a><span>2026-09-26</span></li>';
   const cached = {
-    schemaVersion: 2, status: 'fresh', fetchedAt: '2026-08-23T04:00:00.000Z', lastSuccessAt: '2026-08-23T04:00:00.000Z',
+    schemaVersion: 2, status: 'fresh', fetchedAt: '2026-10-23T04:00:00.000Z', lastSuccessAt: '2026-10-23T04:00:00.000Z',
     sources: [],
     updates: [{
       id: 'stable-old-id', contentHash: 'old-content', title: '海南大学2027年硕士研究生招生简章',
@@ -1728,7 +1728,7 @@ test('missing history clears a transient updated marker', async () => {
   };
   const service = createUpdateService({
     sources: [sources[0]], fetchImpl: async (url) => makeResponse(url, html), cacheStore: createMemoryStore(cached),
-    now: () => new Date('2026-08-24T04:00:00.000Z')
+    now: () => new Date('2026-10-24T04:00:00.000Z')
   });
 
   await service.initialize();
@@ -1749,7 +1749,7 @@ test('new-id telemetry references only retained discoveries and reports capacity
   )).join('');
   const service = createUpdateService({
     sources: [sources[0]], fetchImpl: async (url) => makeResponse(url, html), cacheStore: createMemoryStore(),
-    now: () => new Date('2026-08-24T04:00:00.000Z')
+    now: () => new Date('2026-10-24T04:00:00.000Z')
   });
 
   await service.initialize();

@@ -64,6 +64,10 @@ function isValidPublicationDate(value) {
   return Number.isFinite(timestamp) && new Date(timestamp).toISOString().slice(0, 10) === value;
 }
 
+function getShanghaiDate(value) {
+  return new Date(Date.parse(value) + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
+
 function isCacheSnapshotShape(value) {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value) && Array.isArray(value.updates));
 }
@@ -83,34 +87,13 @@ function sanitizeParserDiagnostics(value, expectedRelevantCount = null) {
 }
 
 function isStaleAdmissionUpdate(update, referenceDate) {
-  if (/2027\s*(?:年|级)/.test(update?.title || '')) return false;
-  if (!update?.date || typeof update.date !== 'string') return false;
-  const pubYear = Number(update.date.slice(0, 4));
-  const refDate = new Date(referenceDate);
-  if (!Number.isFinite(refDate.getTime())) return false;
-  const shanghaiValues = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'Asia/Shanghai',
-    year: 'numeric',
-    month: '2-digit'
-  }).formatToParts(refDate);
-  const currentYear = Number(shanghaiValues.find((p) => p.type === 'year')?.value);
-  if (!Number.isFinite(currentYear)) return false;
-  const targetYear = currentYear + 1;
-  // Discard items published > 18 months ago
-  const pubMs = Date.parse(`${update.date}T00:00:00Z`);
-  if (Number.isFinite(pubMs) && refDate.getTime() - pubMs > 548 * 86_400_000) return true;
-  // If title mentions a year that is 2+ years before the target cycle, it's stale
-  const titleYear = update.title?.match?.(/(?:20\d{2})年?/);
-  if (titleYear) {
-    const mentioned = Number(titleYear[0].replace('年', ''));
-    if (Number.isFinite(mentioned) && mentioned < targetYear - 1) return true;
-  }
-  return false;
+  return !isRelevantAdmissionCycle(update?.title || '', update?.date, referenceDate);
 }
 
 function sanitizeCachedSnapshot(value, sources, refreshIntervalMs, date) {
   if (!value || typeof value !== 'object' || !Array.isArray(value.updates)) return null;
   const seed = makeSeedSnapshot(sources, refreshIntervalMs, date);
+  const todayInShanghai = getShanghaiDate(seed.fetchedAt);
   const allowedSourceIds = new Set(sources.map((source) => source.id));
   const sourceById = new Map(sources.map((source) => [source.id, source]));
   const cacheSuccessTime = isValidIsoDate(value.lastAnySuccessAt)
@@ -145,7 +128,7 @@ function sanitizeCachedSnapshot(value, sources, refreshIntervalMs, date) {
       };
     })
     .filter((update) => (
-      update.id && update.title && isValidPublicationDate(update.date) &&
+      update.id && update.title && isValidPublicationDate(update.date) && update.date <= todayInShanghai &&
       update.source && allowedSourceIds.has(update.sourceId) &&
       isAllowedOfficialUrl(update.url, sourceById.get(update.sourceId)) &&
       !isStaleAdmissionUpdate(update, seed.fetchedAt)
@@ -593,8 +576,13 @@ function createUpdateService(options = {}) {
         error.diagnostics = attemptedDiagnostics;
         throw error;
       }
+      const todayInShanghai = getShanghaiDate(checkedAt);
+      const verifyPublicationDate = (update) => {
+        if (update.date > todayInShanghai) throw new Error('通知发布日期晚于当前日期，已保留上次可信缓存');
+        update.dateVerified = true;
+      };
       const pending = updates.filter((update) => update.dateInferred);
-      updates.filter((update) => !update.dateInferred).forEach((update) => { update.dateVerified = true; });
+      updates.filter((update) => !update.dateInferred).forEach(verifyPublicationDate);
       let pendingIndex = 0;
       const verifications = await Promise.allSettled(Array.from({ length: Math.min(4, pending.length) }, async () => {
         while (pendingIndex < pending.length) {
@@ -602,10 +590,8 @@ function createUpdateService(options = {}) {
           const article = await readOfficialHtml(update.url);
           const date = parseOfficialPublicationDate(article.html);
           if (!date) throw new Error('无法核实通知原文的发布年份，已保留上次可信缓存');
-          const todayInShanghai = new Date(Date.parse(checkedAt) + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
-          if (date > todayInShanghai) throw new Error('通知原文发布日期晚于当前日期，已保留上次可信缓存');
           update.date = date;
-          update.dateVerified = true;
+          verifyPublicationDate(update);
           delete update.dateInferred;
           update.contentHash = makeContentHash(update.title, update.category, date);
         }
@@ -718,6 +704,9 @@ function createUpdateService(options = {}) {
     await initialize();
     const attemptDate = now();
     const fetchedAt = toIsoDate(attemptDate);
+    // Time-based expiry applies to all cached paths, including failed sources.
+    // Expired records must not be mistaken for disappearing upstream links.
+    const previousUpdates = (snapshot.updates || []).filter(update => !isStaleAdmissionUpdate(update, fetchedAt));
     let nextRefreshAt = getNextRefreshAt();
     let results = [];
     let completionEmitted = false;
@@ -765,7 +754,7 @@ function createUpdateService(options = {}) {
     try {
       const priorBySource = new Map(sources.map((source) => [
         source.id,
-        (snapshot.updates || []).filter((update) => update.sourceId === source.id)
+        previousUpdates.filter((update) => update.sourceId === source.id)
       ]));
       const previousSourceById = new Map((snapshot.sources || []).map((source) => [source.id, source]));
       const priorDiagnosticsBySource = new Map(sources.map((source) => {
@@ -822,7 +811,7 @@ function createUpdateService(options = {}) {
     }));
 
     if (successfulSourceIds.size === 0) {
-      const hasCachedUpdates = snapshot.updates.length > 0;
+      const hasCachedUpdates = previousUpdates.length > 0;
       const change = {
         newCount: 0,
         newIds: [],
@@ -833,6 +822,7 @@ function createUpdateService(options = {}) {
       snapshot = {
         ...snapshot,
         status: hasCachedUpdates ? 'stale' : 'seed',
+        updates: previousUpdates,
         fetchedAt,
         lastAttemptAt: fetchedAt,
         nextRefreshAt,
@@ -847,7 +837,6 @@ function createUpdateService(options = {}) {
       return getSnapshot();
     }
 
-    const previousUpdates = snapshot.updates || [];
     const previousUpdateByUrl = new Map([...sourceObservations, ...previousUpdates.map((update) => [
       `${update.sourceId}\n${normalizeUrl(update.url)}`,
       update
@@ -943,7 +932,8 @@ function createUpdateService(options = {}) {
       nextRefreshAt = getNextRefreshAt();
       snapshot = {
         ...snapshot,
-        status: snapshot.updates.length ? 'stale' : 'seed',
+        status: previousUpdates.length ? 'stale' : 'seed',
+        updates: previousUpdates,
         fetchedAt,
         lastAttemptAt: fetchedAt,
         nextRefreshAt,

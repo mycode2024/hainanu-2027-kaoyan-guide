@@ -1,6 +1,6 @@
 const crypto = require('node:crypto');
 // Bump when parser changes make persisted structural diagnostics incomparable.
-const PARSER_DIAGNOSTICS_VERSION = 2;
+const PARSER_DIAGNOSTICS_VERSION = 3;
 const SHANGHAI_DATE_FORMAT = new Intl.DateTimeFormat('en-US', {
   timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit'
 });
@@ -13,6 +13,11 @@ const ENTITY_MAP = {
   nbsp: ' ',
   quot: '"'
 };
+const INLINE_TITLE_TAGS = new Set([
+  'span', 'strong', 'b', 'em', 'i', 'u', 's', 'strike', 'small', 'big', 'mark',
+  'font', 'sub', 'sup', 'abbr', 'bdi', 'bdo', 'cite', 'code', 'dfn', 'kbd', 'samp', 'var', 'wbr'
+]);
+const RCDATA_TAGS = new Set(['textarea', 'title']);
 
 function decodeHtmlEntities(value) {
   return String(value || '').replace(/&(#x?[0-9a-f]+|[a-z]+);/gi, (entity, code) => {
@@ -27,12 +32,14 @@ function decodeHtmlEntities(value) {
   });
 }
 
-function cleanText(value) {
+function cleanText(value, preserveInline = false) {
   const source = String(value || '');
   const parts = [];
   let cursor = 0;
   for (const tag of scanHtmlTags(source)) {
-    parts.push(source.slice(cursor, tag.start), ' ');
+    // Title styling does not create whitespace. Other text extraction keeps
+    // tag boundaries so separate fragments cannot manufacture a date.
+    parts.push(source.slice(cursor, tag.start), preserveInline && INLINE_TITLE_TAGS.has(tag.name) ? '' : ' ');
     cursor = tag.end;
   }
   parts.push(source.slice(cursor));
@@ -240,7 +247,7 @@ function findCommentEnd(source, start) {
 }
 
 function findRawElementEnd(source, start, name) {
-  // Comparisons and markup-like strings in script/style are not opening tags.
+  // Markup-like strings in raw text and RCDATA are not opening tags.
   // Look only for a matching end tag, with a boundary after its exact name.
   const closingTag = new RegExp(`</${name}(?=[\\t\\n\\f\\r />])`, 'gi');
   closingTag.lastIndex = start;
@@ -261,7 +268,8 @@ function findTemplateEnd(source, start) {
       index += 1;
       continue;
     }
-    if (!tag.closing && !tag.selfClosing && (tag.name === 'script' || tag.name === 'style')) {
+    if (!tag.closing && (RCDATA_TAGS.has(tag.name) ||
+        !tag.selfClosing && (tag.name === 'script' || tag.name === 'style'))) {
       index = findRawElementEnd(source, tag.end, tag.name);
       continue;
     }
@@ -301,7 +309,10 @@ function maskNonVisibleRegions(content) {
       index += 1;
       continue;
     }
-    if (!tag.closing && !tag.selfClosing && (tag.name === 'script' || tag.name === 'style')) {
+    // RCDATA cannot contribute notice markup or publication metadata. In HTML,
+    // a trailing slash does not self-close textarea/title elements.
+    if (!tag.closing && (RCDATA_TAGS.has(tag.name) ||
+        !tag.selfClosing && (tag.name === 'script' || tag.name === 'style'))) {
       const end = findRawElementEnd(source, tag.end, tag.name);
       maskRange(output, index, end);
       index = end;
@@ -391,13 +402,19 @@ function extractPublicationDate(visibleContent, checkedDate) {
     for (const [priority, text] of shortDateTexts.entries()) {
       for (const match of text.matchAll(/\[\s*((?:0[1-9]|1[0-2]))-((?:0[1-9]|[12]\d|3[01]))\s*\]/g)) {
         const month = Number(match[1]);
-        const year = checkedDate.year - (month > checkedDate.month ? 1 : 0);
+        const day = Number(match[2]);
+        let year = checkedDate.year - (month > checkedDate.month ? 1 : 0);
+        // Keep leap-day labels eligible for article verification even when
+        // the guessed year is not a leap year. This date remains inferred.
+        if (month === 2 && day === 29) {
+          while (!isValidCalendarDate(year, month, day)) year -= 1;
+        }
         dateCandidates.push({
           priority,
           index: match.index,
           year,
           month,
-          day: Number(match[2]),
+          day,
           value: `${year}-${match[1]}-${match[2]}`,
           inferred: true
         });
@@ -518,7 +535,38 @@ function extractAnchors(visibleContent) {
   return anchors;
 }
 
-function extractAnnouncementCards(html, calendar) {
+function extractAnchorTitle(titleHtml) {
+  const publicationLabels = findPublicationLabels(titleHtml);
+  if (publicationLabels.length) {
+    const titleContent = titleHtml.split('');
+    for (const label of publicationLabels) {
+      maskRange(titleContent, label.index, label.index + label[0].length);
+    }
+    titleHtml = titleContent.join('');
+  }
+  return cleanText(titleHtml, true);
+}
+
+function selectNoticeAnchor(anchors, source, documentUrl) {
+  if (anchors.length <= 1) return anchors[0] || null;
+  const targets = new Set();
+  for (const anchor of anchors) {
+    try {
+      const url = new URL(decodeHtmlEntities(anchor.href), documentUrl);
+      url.hash = '';
+      targets.add(url.href);
+    } catch {
+      return null;
+    }
+    // A shared container must not pair different notices with one date.
+    if (targets.size > 1) return null;
+  }
+  // Prefer the notice title over an image or a generic read-more label.
+  // Keep non-notice links as boundaries so a parent cannot lend them a date.
+  return anchors.find(anchor => isRelevantTitle(extractAnchorTitle(anchor.titleHtml), source)) || anchors[0];
+}
+
+function extractAnnouncementCards(html, calendar, source, documentUrl) {
   // Preserve offsets while masking once for the entire document.
   const visibleHtml = maskNonVisibleRegions(html);
   const elements = ['li', 'div']
@@ -534,23 +582,35 @@ function extractAnnouncementCards(html, calendar) {
   // Ordered starts allow the same linear reverse scan for both boundaries.
   for (let index = elements.length - 1; index >= 0; index -= 1) {
     const element = elements[index];
-    const anchors = extractAnchors(element.content);
-    if (anchors.length !== 1) continue;
+    const anchor = selectNoticeAnchor(extractAnchors(element.content), source, documentUrl);
+    if (!anchor) continue;
     if (element.end >= earliestLinkedListEnd) continue;
     if (element.type === 'li') earliestLinkedListEnd = element.end;
     const date = extractPublicationDate(element.content, calendar);
     if (!date) continue;
-    const card = { ...element, anchor: anchors[0], date: date.value,
+    const card = { ...element, anchor, date: date.value,
       dateInferred: date.inferred, hasPublicationLabel: date.hasPublicationLabel };
     const innerCard = cards.at(-1);
+    const otherInnerCard = cards.at(-2);
     if (element.end < earliestEnd) {
       cards.push(card);
-    } else if (date.hasPublicationLabel && innerCard &&
+    } else if (innerCard &&
         innerCard.start >= element.start && innerCard.end <= element.end &&
-        (!innerCard.hasPublicationLabel || (!innerCard.date && date.value))) {
-      // A title/summary div may contain a deadline. Prefer the enclosing
-      // card's publication label over that inner unlabelled date.
-      cards[cards.length - 1] = card;
+        !(otherInnerCard && otherInnerCard.start >= element.start && otherInnerCard.end <= element.end)) {
+      // Only a single child card can be extended by its parent. Prefer an
+      // explicit parent date over an unlabelled summary deadline.
+      const preferParentDate = date.hasPublicationLabel &&
+        (!innerCard.hasPublicationLabel || (!innerCard.date && date.value));
+      const preferParentTitle = !isRelevantTitle(extractAnchorTitle(innerCard.anchor.titleHtml), source) &&
+        isRelevantTitle(extractAnchorTitle(anchor.titleHtml), source);
+      if (preferParentDate) {
+        cards[cards.length - 1] = card;
+      } else if (preferParentTitle) {
+        // Completing a dated preview's title must not borrow an unrelated
+        // date from the parent's body, including an application deadline.
+        cards[cards.length - 1] = { ...card, date: innerCard.date,
+          dateInferred: innerCard.dateInferred, hasPublicationLabel: innerCard.hasPublicationLabel };
+      }
     }
     earliestEnd = Math.min(earliestEnd, element.end);
   }
@@ -559,7 +619,7 @@ function extractAnnouncementCards(html, calendar) {
 
 function parseOfficialDocument(html, source, checkedAt = new Date().toISOString(), documentUrl = source?.url) {
   const calendar = getShanghaiYearAndMonth(checkedAt);
-  const candidates = extractAnnouncementCards(html, calendar);
+  const candidates = extractAnnouncementCards(html, calendar, source, documentUrl);
   const diagnostics = {
     candidateCount: candidates.length,
     relevantCount: 0,
@@ -570,16 +630,11 @@ function parseOfficialDocument(html, source, checkedAt = new Date().toISOString(
   const updatesById = new Map();
 
   for (const candidate of candidates) {
-    let titleHtml = candidate.anchor.titleHtml;
-    const publicationLabels = findPublicationLabels(titleHtml);
-    if (publicationLabels.length) {
-      const titleContent = titleHtml.split('');
-      for (const label of publicationLabels) {
-        maskRange(titleContent, label.index, label.index + label[0].length);
-      }
-      titleHtml = titleContent.join('');
-    }
-    const title = cleanText(titleHtml);
+    // Keep placeholder anchors during card extraction to preserve boundaries,
+    // but never turn an empty or same-page fragment link into a notice URL.
+    const href = decodeHtmlEntities(candidate.anchor.href).trim();
+    if (!href || href.startsWith('#')) continue;
+    const title = extractAnchorTitle(candidate.anchor.titleHtml);
     if (!isRelevantTitle(title, source)) continue;
     // A guessed year must not discard a notice before the article is checked.
     if (!isRelevantAdmissionCycle(title, candidate.dateInferred ? null : candidate.date, checkedAt, calendar)) continue;
@@ -587,7 +642,7 @@ function parseOfficialDocument(html, source, checkedAt = new Date().toISOString(
     let url;
     try {
       // Resolve against the fetched page while keeping source identity and trust rules.
-      const resolvedUrl = new URL(decodeHtmlEntities(candidate.anchor.href), documentUrl);
+      const resolvedUrl = new URL(href, documentUrl);
       resolvedUrl.hash = '';
       url = resolvedUrl.href;
     } catch {

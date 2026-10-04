@@ -23,6 +23,179 @@ const computerSource = {
   url: 'https://cs.hainanu.edu.cn/zsgz/yjszs.htm'
 };
 
+for (const href of ['', ' \t\n', '#', '#details', '&#35;', '&#x23;details', ' &#32;&#35;details ']) {
+  test(`placeholder notice links are excluded: ${JSON.stringify(href)}`, () => {
+    const { parseOfficialDocument } = loadScraper();
+    for (const container of ['li', 'div']) {
+      const html = `<${container}><a href="${href}">2027年硕士研究生招生专业目录</a><time>2026-10-03</time></${container}>`;
+      const result = parseOfficialDocument(html, graduateSource, '2026-10-04T04:00:00Z', 'https://gs.hainanu.edu.cn/new/list.htm');
+      assert.deepEqual(result.updates, []);
+      assert.equal(result.diagnostics.relevantCount, 0);
+    }
+  });
+}
+
+test('placeholder rejection preserves article fragments, relative links and query targets', () => {
+  const { parseOfficialDocument } = loadScraper();
+  for (const [href, expected] of [
+    ['../info/1.htm#details', 'https://gs.hainanu.edu.cn/info/1.htm'],
+    ['/info/2.htm&#35;details', 'https://gs.hainanu.edu.cn/info/2.htm'],
+    ['?article=3#details', 'https://gs.hainanu.edu.cn/new/list.htm?article=3'],
+    [' /info/4.htm ', 'https://gs.hainanu.edu.cn/info/4.htm']
+  ]) {
+    const result = parseOfficialDocument(`<li><a href="${href}">2027年硕士研究生招生简章</a><time>2026-10-03</time></li>`,
+      graduateSource, '2026-10-04T04:00:00Z', 'https://gs.hainanu.edu.cn/new/list.htm');
+    assert.deepEqual(result.updates.map(update => update.url), [expected]);
+  }
+});
+
+test('placeholder links keep card boundaries against borrowing a sibling date', () => {
+  const { parseOfficialList } = loadScraper();
+  const html = '<div><li><a href="/info/real.htm">2027年硕士研究生招生简章</a></li>' +
+    '<li><a href="#">2027年硕士研究生招生专业目录</a><time>2026-10-03</time></li></div>';
+  assert.deepEqual(parseOfficialList(html, graduateSource, '2026-10-04T04:00:00Z'), []);
+});
+
+for (const tag of ['textarea', 'title']) {
+  const fake = '<li><a href="/info/example.htm">2027年硕士研究生复试示例公告</a><time>2026-10-03</time></li>';
+  const real = '<li><a href="/info/real.htm">2027年硕士研究生招生简章</a><time>2026-10-02</time></li>';
+  for (const [variant, prefix] of [
+    ['ordinary', `<${tag}>${fake}</${tag}>`],
+    ['self-closing slash ignored in HTML', `<${tag} />${fake}</${tag}>`],
+    ['mixed-case closing tag and false closing prefix', `<${tag}>文字</${tag}-example>${fake}</${tag.toUpperCase()} >`],
+    ['template closing tag is plain text', `<template><${tag}></template>${fake}</${tag}></template>`]
+  ]) {
+    test(`RCDATA ${tag} excludes sample notices: ${variant}`, () => {
+      const { parseOfficialDocument } = loadScraper();
+      const result = parseOfficialDocument(prefix + real, graduateSource, '2026-10-04T04:00:00Z');
+      assert.deepEqual(result.updates.map(update => update.url), ['https://gs.hainanu.edu.cn/info/real.htm']);
+      assert.equal(result.diagnostics.candidateCount, 1);
+      assert.equal(result.updates[0].date, '2026-10-02');
+    });
+  }
+
+  test(`RCDATA unclosed ${tag} consumes sample markup through EOF`, () => {
+    const { parseOfficialList } = loadScraper();
+    assert.deepEqual(parseOfficialList(`<${tag}>${fake}`, graduateSource, '2026-10-04T04:00:00Z'), []);
+  });
+
+  test(`RCDATA ${tag} cannot supply publication metadata or bylines`, () => {
+    const { parseOfficialPublicationDate } = loadScraper();
+    const sample = `<${tag}><meta name="PubDate" content="2026-10-03">2026年10月3日 12:00 来源：研究生院</${tag}>`;
+    assert.equal(parseOfficialPublicationDate(sample), null);
+    assert.equal(parseOfficialPublicationDate(sample + '<meta name="PubDate" content="2026-10-02">'), '2026-10-02');
+  });
+}
+
+for (const [name, markup, title, category, important] of [
+  ['strong guide keyword', '2027年硕士研究生招生<strong>简章</strong>', '2027年硕士研究生招生简章', '简章目录', true],
+  ['nested span and emphasis', '复<span><em>试</em></span>公告', '复试公告', '复试录取', true],
+  ['legacy font tag', '2027年硕士研究生专业<font color="red">目录</font>', '2027年硕士研究生专业目录', '简章目录', true],
+  ['highlighted confirmation', '网上<mark>确认</mark>公告', '网上确认公告', '报名确认', false],
+  ['split admission year', '20<b>27</b>年硕士研究生招生简章', '2027年硕士研究生招生简章', '简章目录', true],
+  ['doctoral exclusion', '2027年博<strong>士</strong>研究生招生简章', null, null],
+  ['undergraduate exclusion', '2027年本<span>科</span>招生简章', null, null]
+]) {
+  test(`inline title formatting preserves ${name}`, () => {
+    const { parseOfficialList } = loadScraper();
+    const html = `<li><a href="/info/9910.htm">${markup}</a><time>2026-10-03</time></li>`;
+    const result = parseOfficialList(html, graduateSource, '2026-10-04T04:00:00Z');
+    if (!title) return assert.deepEqual(result, []);
+    assert.equal(result.length, 1);
+    assert.equal(result[0].title, title);
+    assert.equal(result[0].category, category);
+    assert.equal(result[0].isImportant, important);
+    if (title.startsWith('2027')) assert.equal(result[0].isTarget2027, true);
+  });
+}
+
+test('inline title formatting preserves real whitespace and removed publication boundaries', () => {
+  const { parseOfficialList } = loadScraper();
+  for (const [markup, title] of [
+    ['2027年硕士研究生招生<br>简章', '2027年硕士研究生招生 简章'],
+    ['2027年硕士研究生招生<div>简章</div>', '2027年硕士研究生招生 简章'],
+    ['2027年硕士研究生招生 <strong>简章</strong>', '2027年硕士研究生招生 简章'],
+    ['2027年硕士研究生招生<span class="date">2026-10-03</span>简章', '2027年硕士研究生招生 简章'],
+    ['2027年硕士研究生招生<span>简章</span> &lt;补充&gt;', '2027年硕士研究生招生简章 <补充>']
+  ]) {
+    const result = parseOfficialList(`<li><a href="/info/9910.htm">${markup}</a><time>2026-10-03</time></li>`, graduateSource, '2026-10-04T04:00:00Z');
+    assert.equal(result[0]?.title, title);
+  }
+});
+
+test('inline title formatting does not join fragments into a publication date', () => {
+  const { parseOfficialList } = loadScraper();
+  const html = '<li><a href="/info/9910.htm">2027年硕士研究生招生<strong>简章</strong></a>' +
+    '<span>2026-</span><span>10-03</span></li>';
+  assert.deepEqual(parseOfficialList(html, graduateSource, '2026-10-04T04:00:00Z'), []);
+});
+
+for (const [name, links] of [
+  ['image before title', '<a href="/info/9901.htm"><img src="cover.jpg" alt="封面"></a>TITLE'],
+  ['read-more before title', '<a href="/info/9901.htm">查看详情</a>TITLE'],
+  ['read-more after title', 'TITLE<a href="/info/9901.htm">查看详情</a>'],
+  ['duplicate titles', 'TITLETITLE'],
+  ['nested title', '<a href="/info/9901.htm"><img src="cover.jpg"></a><div>TITLE</div>']
+]) {
+  for (const container of ['li', 'div']) {
+    test(`repeated notice links: ${name} in ${container}`, () => {
+      const { parseOfficialDocument } = loadScraper();
+      const title = '2027年硕士研究生招生专业目录';
+      const anchor = `<a href="/info/9901.htm">${title}</a>`;
+      const html = `<${container}>${links.replaceAll('TITLE', anchor)}<time>2026-10-03</time></${container}>`;
+      const parsed = parseOfficialDocument(html, graduateSource, '2026-10-04T04:00:00Z');
+      assert.deepEqual(parsed.updates.map(({ title, date, url }) => ({ title, date, url })), [{
+        title, date: '2026-10-03', url: 'https://gs.hainanu.edu.cn/info/9901.htm'
+      }]);
+      assert.deepEqual(parsed.diagnostics, { candidateCount: 1, relevantCount: 1, containerTypes: [container] });
+    });
+  }
+}
+
+test('repeated notice links compare resolved URLs using the redirected page and decoded entities', () => {
+  const { parseOfficialList } = loadScraper();
+  const html = '<li><a href="../info/9901.htm?a=1&amp;b=2#cover"><img src="cover.jpg"></a>' +
+    '<a href="https://gs.hainanu.edu.cn/new/info/9901.htm?a=1&b=2#title">2027年硕士研究生招生专业目录</a><time>2026-10-03</time></li>';
+  // parseOfficialDocument accepts the effective document URL after redirects.
+  const { parseOfficialDocument } = loadScraper();
+  const result = parseOfficialDocument(html, graduateSource, '2026-10-04T04:00:00Z', 'https://gs.hainanu.edu.cn/new/list/index.htm');
+  assert.deepEqual(result.updates.map(update => update.url), ['https://gs.hainanu.edu.cn/new/info/9901.htm?a=1&b=2']);
+  assert.deepEqual(parseOfficialList(html, graduateSource, '2026-10-04T04:00:00Z'), []);
+});
+
+test('repeated notice links do not join distinct query targets or borrow a surrounding date', () => {
+  const { parseOfficialList } = loadScraper();
+  const title = '2027年硕士研究生招生专业目录';
+  for (const html of [
+    `<li><a href="/info/9901.htm?part=1">${title}</a><a href="/info/9901.htm?part=2">查看详情</a><time>2026-10-03</time></li>`,
+    `<div><li><a href="/info/9901.htm"><img src="cover.jpg"></a><a href="/info/9901.htm">${title}</a></li><time>2026-10-03</time></div>`
+  ]) assert.deepEqual(parseOfficialList(html, graduateSource, '2026-10-04T04:00:00Z'), []);
+});
+
+for (const preview of ['<img src="cover.jpg">', '查看详情']) {
+  for (const label of ['<time>2026-10-03</time>', '<span>2026-10-03</span>', '<div class="date">2026-10-03</div>']) {
+    test(`repeated notice links retain the outer title with preview ${preview} and ${label}`, () => {
+      const { parseOfficialDocument } = loadScraper();
+      const html = `<li><p>报名截止：2026-10-20</p><div class="preview"><a href="/info/9901.htm">${preview}</a>${label}</div>` +
+        '<a href="/info/9901.htm">2027年硕士研究生招生专业目录</a></li>';
+      const parsed = parseOfficialDocument(html, graduateSource, '2026-10-04T04:00:00Z');
+      assert.deepEqual(parsed.updates.map(({ title, date }) => ({ title, date })), [{
+        title: '2027年硕士研究生招生专业目录', date: '2026-10-03'
+      }]);
+      assert.deepEqual(parsed.diagnostics.containerTypes, ['li']);
+    });
+  }
+}
+
+test('repeated notice links in separate dated cards cannot borrow the outer footer date', () => {
+  const { parseOfficialDocument } = loadScraper();
+  const card = date => `<div><a href="/info/9901.htm">2027年硕士研究生招生专业目录</a><span>${date}</span></div>`;
+  const html = `<div>${card('2026-10-02')}${card('2026-10-03')}<footer><time>2026-10-04</time></footer></div>`;
+  const parsed = parseOfficialDocument(html, graduateSource, '2026-10-04T04:00:00Z');
+  assert.deepEqual(parsed.updates.map(update => update.date), ['2026-10-02']);
+  assert.equal(parsed.diagnostics.candidateCount, 2);
+});
+
 for (const listType of ['ul', 'ol', 'menu']) {
   test(`optional li end tags preserve separate notices inside ${listType}`, () => {
     const { parseOfficialDocument } = loadScraper();
