@@ -37,6 +37,123 @@ for (const date of ['2026-10-03', '[10-03]']) {
   });
 }
 
+for (const tag of ['script', 'style', 'template']) {
+  test(`HTML ${tag} with a trailing slash cannot create cached discoveries or change verified dates`, async () => {
+    const real = '<li><a href="/info/real.htm">2027年硕士研究生招生简章</a><time>[10-06]</time></li>';
+    const fake = '<li><a href="/info/example.htm">2027年硕士研究生招生测试示例</a><time>2026-10-07</time></li>';
+    let includeSample = false;
+    const writes = [];
+    const options = { sources: [homepage], now: () => new Date('2026-10-07T04:00:00Z'),
+      cacheStore: { load: async () => null, save: async snapshot => writes.push(structuredClone(snapshot)) },
+      fetchImpl: async url => reply(url, url === homepage.url
+        ? (includeSample ? `<${tag} />${fake}</${tag}>` : '') + real
+        : (includeSample ? `<${tag} /><meta name="PubDate" content="2026-10-07"></${tag}>` : '') +
+          '<meta name="PubDate" content="2026-10-06">') };
+    const service = createUpdateService(options);
+    const first = await service.refresh();
+    assert.equal(first.status, 'fresh');
+    includeSample = true;
+    const second = await service.refresh();
+    assert.equal(second.status, 'fresh');
+    assert.deepEqual(second.updates.map(update => ({ url: update.url, date: update.date })), [
+      { url: 'https://gs.hainanu.edu.cn/info/real.htm', date: '2026-10-06' }
+    ]);
+    assert.equal(second.change.newCount, 0);
+    assert.equal(second.change.updatedCount, 0);
+    assert.equal(second.updates[0].dateVerified, true);
+    assert.equal(writes.at(-1).updates.length, 1);
+    assert.equal(writes.at(-1).sourceObservations.length, 1);
+    const restarted = createUpdateService({ ...options,
+      cacheStore: { load: async () => writes.at(-1), save: options.cacheStore.save } });
+    await restarted.initialize();
+    assert.equal(restarted.getSnapshot().updates.length, 1);
+    const repeated = await restarted.refresh();
+    assert.equal(repeated.status, 'fresh');
+    assert.equal(repeated.change.newCount, 0);
+    assert.equal(repeated.change.updatedCount, 0);
+    assert.equal(repeated.updates[0].date, '2026-10-06');
+  });
+}
+
+test('version 3 cache rebaselines a container corrected by HTML template slash handling', async () => {
+  const notice = '<a href="info/real.htm">2027年硕士研究生招生简章</a><time>2026-10-06</time>';
+  let html = `<li>${notice}</li>`;
+  const writes = [];
+  const options = { sources: [homepage], now: () => new Date('2026-10-07T04:00:00Z'), delayImpl: async () => {},
+    cacheStore: { load: async () => null, save: async snapshot => writes.push(structuredClone(snapshot)) },
+    fetchImpl: async url => reply(url, html) };
+  const first = await createUpdateService(options).refresh();
+  const legacy = structuredClone(writes[0]);
+  legacy.sources[0].parserVersion = 3;
+  // Version 3 selected the hidden li from this HTML. The visible div has the
+  // same notice identity and content, so only the structural baseline changes.
+  html = `<div><template /><li>${notice}</li></template>${notice}</div>`;
+  const restarted = createUpdateService({ ...options,
+    cacheStore: { load: async () => legacy, save: options.cacheStore.save } });
+  const result = await restarted.refresh();
+  assert.equal(result.status, 'fresh');
+  assert.deepEqual(result.sources[0].lastTrustedDiagnostics.containerTypes, ['div']);
+  assert.equal(result.updates[0].id, first.updates[0].id);
+  assert.equal(result.updates[0].contentHash, first.updates[0].contentHash);
+  assert.equal(result.change.newCount, 0);
+  assert.equal(result.change.updatedCount, 0);
+  assert.equal(writes.length, 2);
+});
+
+test('version 4 cache rebaselines a container with a corrected valueless SVG attribute', async () => {
+  const notice = '<a href="info/real.htm">2027年硕士研究生招生简章</a><time>2026-10-06</time>';
+  let html = `<li>${notice}</li>`;
+  const writes = [];
+  const options = { sources: [homepage], now: () => new Date('2026-10-13T04:00:00Z'), delayImpl: async () => {},
+    cacheStore: { load: async () => null, save: async snapshot => writes.push(structuredClone(snapshot)) },
+    fetchImpl: async url => reply(url, html) };
+  const first = await createUpdateService(options).refresh();
+  const legacy = structuredClone(writes[0]);
+  legacy.sources[0].parserVersion = 4;
+  html = `<div><svg><title data-icon/></svg>${notice}</div>`;
+  const restarted = createUpdateService({ ...options,
+    cacheStore: { load: async () => legacy, save: options.cacheStore.save } });
+  const result = await restarted.refresh();
+  assert.equal(result.status, 'fresh');
+  assert.deepEqual(result.sources[0].lastTrustedDiagnostics.containerTypes, ['div']);
+  assert.equal(result.updates[0].id, first.updates[0].id);
+  assert.equal(result.updates[0].contentHash, first.updates[0].contentHash);
+  assert.equal(result.change.newCount, 0);
+  assert.equal(result.change.updatedCount, 0);
+  assert.equal(writes.at(-1).sourceObservations.length, 1);
+});
+
+for (const boundary of ['quoted SVG attribute', 'literal less-than text']) {
+  test(`notice cache remains stable across a ${boundary} boundary`, async () => {
+    const real = '<li><a href="/info/real.htm">2027年硕士研究生招生简章</a><time>2026-10-06</time></li>';
+    const fake = real.replace('/real.htm', '/example.htm');
+    let html = real;
+    const writes = [];
+    const options = { sources: [homepage], now: () => new Date('2026-10-07T04:00:00Z'), delayImpl: async () => {},
+      cacheStore: { load: async () => null, save: async snapshot => writes.push(structuredClone(snapshot)) },
+      fetchImpl: async url => reply(url, html) };
+    const service = createUpdateService(options);
+    const first = await service.refresh();
+    assert.equal(first.status, 'fresh');
+    html = boundary === 'quoted SVG attribute'
+      ? `<svg aria-hidden="true"/><script />${fake}</script>${real}`
+      : `< script>${real}`;
+    const second = await service.refresh();
+    assert.equal(second.status, 'fresh');
+    assert.deepEqual(second.updates.map(update => update.url), ['https://gs.hainanu.edu.cn/info/real.htm']);
+    assert.equal(second.change.newCount, 0);
+    assert.equal(second.change.updatedCount, 0);
+    assert.equal(writes.at(-1).sourceObservations.length, 1);
+    const restarted = createUpdateService({ ...options,
+      cacheStore: { load: async () => writes.at(-1), save: options.cacheStore.save } });
+    const repeated = await restarted.refresh();
+    assert.equal(repeated.status, 'fresh');
+    assert.equal(repeated.change.newCount, 0);
+    assert.equal(repeated.change.updatedCount, 0);
+    assert.deepEqual(repeated.updates.map(update => update.url), ['https://gs.hainanu.edu.cn/info/real.htm']);
+  });
+}
+
 for (const tag of ['textarea', 'title']) {
   test(`RCDATA ${tag} sample does not become a discovery or cached notice`, async () => {
     const real = '<li><a href="/info/real.htm">2027年硕士研究生招生简章</a><time>2026-10-02</time></li>';

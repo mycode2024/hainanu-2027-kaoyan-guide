@@ -56,6 +56,234 @@ test('placeholder links keep card boundaries against borrowing a sibling date', 
   assert.deepEqual(parseOfficialList(html, graduateSource, '2026-10-04T04:00:00Z'), []);
 });
 
+for (const tag of ['script', 'style', 'template']) {
+  const fake = '<li><a href="/info/example.htm">2027年硕士研究生招生测试示例</a><time>2026-10-07</time></li>';
+  const real = '<li><a href="/info/real.htm">2027年硕士研究生招生简章</a><time>2026-10-06</time></li>';
+
+  test(`a trailing slash on HTML ${tag} does not expose sample notices`, () => {
+    const { parseOfficialDocument } = loadScraper();
+    for (const opening of [`<${tag}/>`, `<${tag} />`, `<${tag} data-preview="sample" />`]) {
+      const result = parseOfficialDocument(`${opening}${fake}</${tag}>${real}`, graduateSource, '2026-10-07T04:00:00Z');
+      assert.deepEqual(result.updates.map(update => ({ url: update.url, date: update.date })), [
+        { url: 'https://gs.hainanu.edu.cn/info/real.htm', date: '2026-10-06' }
+      ], opening);
+      assert.equal(result.diagnostics.candidateCount, 1, opening);
+    }
+  });
+
+  test(`a trailing slash on unclosed HTML ${tag} keeps sample markup hidden through EOF`, () => {
+    const { parseOfficialDocument } = loadScraper();
+    const result = parseOfficialDocument(`<${tag} />${fake}`, graduateSource, '2026-10-07T04:00:00Z');
+    assert.deepEqual(result.updates, []);
+    assert.equal(result.diagnostics.candidateCount, 0);
+  });
+
+  test(`a trailing slash on HTML ${tag} cannot expose publication metadata or bylines`, () => {
+    const { parseOfficialPublicationDate } = loadScraper();
+    const hidden = `<${tag} /><meta name="PubDate" content="2026-10-07">2026年10月7日 12:00 来源：研究生院</${tag}>`;
+    assert.equal(parseOfficialPublicationDate(hidden), null);
+    assert.equal(parseOfficialPublicationDate(hidden + '<meta name="PubDate" content="2026-10-06">'), '2026-10-06');
+  });
+}
+
+for (const tag of ['script', 'style', 'template']) {
+  test(`a trailing slash on nested HTML ${tag} cannot end its enclosing template early`, () => {
+    const { parseOfficialDocument } = loadScraper();
+    const fake = '<li><a href="/info/example.htm">2027年硕士研究生招生测试示例</a><time>2026-10-07</time></li>';
+    const real = '<li><a href="/info/real.htm">2027年硕士研究生招生简章</a><time>2026-10-06</time></li>';
+    const nested = tag === 'template' ? `<template /></template>` : `<${tag} />"</template>"</${tag}>`;
+    const result = parseOfficialDocument(`<template>${nested}${fake}</template>${real}`, graduateSource, '2026-10-07T04:00:00Z');
+    assert.deepEqual(result.updates.map(update => update.url), ['https://gs.hainanu.edu.cn/info/real.htm']);
+    assert.equal(result.diagnostics.candidateCount, 1);
+  });
+}
+
+for (const quote of ['"', "'"]) {
+  test(`quoted foreign self-closing tags preserve notices without whitespace before the slash: ${quote}`, () => {
+    const { parseOfficialDocument, parseOfficialPublicationDate } = loadScraper();
+    const real = '<li><a href="/info/real.htm">2027年硕士研究生招生简章</a><time>2026-10-06</time></li>';
+    for (const namespace of ['svg', 'math']) {
+      for (const tag of ['script', 'style', 'title', 'template']) {
+        const foreign = `<${namespace}><${tag} id=${quote}icon${quote}/></${namespace}>`;
+        for (const prefix of [foreign, `<template>${foreign}</template>`]) {
+          assert.deepEqual(parseOfficialDocument(prefix + real, graduateSource, '2026-10-07T04:00:00Z').updates.map(update => update.url),
+            ['https://gs.hainanu.edu.cn/info/real.htm'], prefix);
+          assert.equal(parseOfficialPublicationDate(prefix + '<meta name="PubDate" content="2026-10-06">'), '2026-10-06', prefix);
+        }
+      }
+    }
+  });
+
+  test(`quoted self-closing namespace roots cannot expose following HTML script samples: ${quote}`, () => {
+    const { parseOfficialList } = loadScraper();
+    const real = '<li><a href="/info/real.htm">2027年硕士研究生招生简章</a><time>2026-10-06</time></li>';
+    const fake = real.replace('/real.htm', '/example.htm');
+    for (const namespace of ['svg', 'math']) {
+      const html = `<${namespace} aria-hidden=${quote}true${quote}/><script />${fake}</script>${real}`;
+      assert.deepEqual(parseOfficialList(html, graduateSource, '2026-10-07T04:00:00Z').map(update => update.url),
+        ['https://gs.hainanu.edu.cn/info/real.htm'], namespace);
+    }
+  });
+}
+
+for (const namespace of ['svg', 'math']) {
+  test(`valueless attributes on self-closing ${namespace} tags preserve real notices and dates`, () => {
+    const { parseOfficialDocument, parseOfficialPublicationDate } = loadScraper();
+    const real = '<li><a href="/info/real.htm">2027年硕士研究生招生简章</a><time>2026-10-06</time></li>';
+    for (const tag of ['script', 'style', 'title', 'template']) {
+      const foreign = `<${namespace}><${tag} data-icon/></${namespace}>`;
+      for (const prefix of [foreign, `<template>${foreign}</template>`]) {
+        const result = parseOfficialDocument(prefix + real, graduateSource, '2026-10-13T04:00:00Z');
+        assert.deepEqual(result.updates.map(update => update.url), ['https://gs.hainanu.edu.cn/info/real.htm'], prefix);
+        assert.equal(result.diagnostics.candidateCount, 1, prefix);
+        assert.equal(parseOfficialPublicationDate(prefix + '<meta name="PubDate" content="2026-10-06">'), '2026-10-06', prefix);
+      }
+    }
+  });
+
+  test(`valueless attributes on a self-closing ${namespace} root cannot expose HTML script samples`, () => {
+    const { parseOfficialList, parseOfficialPublicationDate } = loadScraper();
+    const real = '<li><a href="/info/real.htm">2027年硕士研究生招生简章</a><time>2026-10-06</time></li>';
+    const fake = real.replace('/real.htm', '/example.htm');
+    for (const attributes of ['aria-hidden', 'id="icon" aria-hidden', 'data-icon=icon aria-hidden']) {
+      const prefix = `<${namespace} ${attributes}/><script />${fake}</script>`;
+      assert.deepEqual(parseOfficialList(prefix + real, graduateSource, '2026-10-13T04:00:00Z').map(update => update.url),
+        ['https://gs.hainanu.edu.cn/info/real.htm'], attributes);
+      assert.equal(parseOfficialPublicationDate(`<${namespace} ${attributes}/><script /><meta name="PubDate" content="2026-10-12"></script><meta name="PubDate" content="2026-10-06">`),
+        '2026-10-06', attributes);
+    }
+  });
+
+  test(`whitespace after a ${namespace} slash and slashes in attribute values do not self-close it`, () => {
+    const { parseOfficialList } = loadScraper();
+    const real = '<li><a href="/info/real.htm">2027年硕士研究生招生简章</a><time>2026-10-06</time></li>';
+    const first = real.replace('/real.htm', '/first.htm');
+    for (const ending of ['/ >', '/\t>', '/\n>', ' aria-hidden/ >', ' data-label= />', ' data-label=icon/>']) {
+      const html = `<${namespace}${ending}<script />${first}</script>${real}`;
+      assert.deepEqual(parseOfficialList(html, graduateSource, '2026-10-13T04:00:00Z').map(update => update.url),
+        ['https://gs.hainanu.edu.cn/info/first.htm', 'https://gs.hainanu.edu.cn/info/real.htm'], html);
+    }
+  });
+}
+
+test('a slash in an unquoted namespace attribute remains part of the value', () => {
+  const { parseOfficialList } = loadScraper();
+  const real = '<li><a href="/info/real.htm">2027年硕士研究生招生简章</a><time>2026-10-06</time></li>';
+  const html = `<svg data-icon=/icons/><script /></svg>${real}`;
+  assert.deepEqual(parseOfficialList(html, graduateSource, '2026-10-07T04:00:00Z').map(update => update.url),
+    ['https://gs.hainanu.edu.cn/info/real.htm']);
+});
+
+test('quotes embedded in unquoted attributes cannot close a foreign namespace', () => {
+  const { parseOfficialList } = loadScraper();
+  const real = '<li><a href="/info/real.htm">2027年硕士研究生招生简章</a><time>2026-10-06</time></li>';
+  const first = real.replace('/real.htm', '/first.htm');
+  for (const namespace of ['svg', 'math']) {
+    for (const value of ["foo'bar'", 'a"b"', 'foo="bar"', "foo='bar'"]) {
+      const html = `<${namespace} data-label=${value}/><script />${first}</script>${real}`;
+      assert.deepEqual(parseOfficialList(html, graduateSource, '2026-10-07T04:00:00Z').map(update => update.url),
+        ['https://gs.hainanu.edu.cn/info/first.htm', 'https://gs.hainanu.edu.cn/info/real.htm'], html);
+    }
+  }
+});
+
+test('whitespace after a less-than sign stays literal text instead of hiding real notices', () => {
+  const { parseOfficialDocument, parseOfficialPublicationDate } = loadScraper();
+  const real = '<li><a href="/info/real.htm">2027年硕士研究生招生简章</a><time>2026-10-06</time></li>';
+  for (const space of [' ', '\t', '\n']) {
+    for (const tag of ['script', 'style', 'template']) {
+      const prefix = `<${space}${tag}>`;
+      assert.deepEqual(parseOfficialDocument(prefix + real, graduateSource, '2026-10-07T04:00:00Z').updates.map(update => update.url),
+        ['https://gs.hainanu.edu.cn/info/real.htm'], prefix);
+      assert.equal(parseOfficialPublicationDate(prefix + '<meta name="PubDate" content="2026-10-06">'), '2026-10-06', prefix);
+    }
+  }
+});
+
+test('whitespace after an end-tag slash cannot close a hidden template early', () => {
+  const { parseOfficialList } = loadScraper();
+  const real = '<li><a href="/info/real.htm">2027年硕士研究生招生简章</a><time>2026-10-06</time></li>';
+  const fake = real.replace('/real.htm', '/example.htm');
+  for (const space of [' ', '\t', '\n']) {
+    const html = `<template></${space}template>${fake}</template>${real}`;
+    assert.deepEqual(parseOfficialList(html, graduateSource, '2026-10-07T04:00:00Z').map(update => update.url),
+      ['https://gs.hainanu.edu.cn/info/real.htm']);
+  }
+});
+
+for (const namespace of ['svg', 'math']) {
+  for (const tag of ['script', 'style', 'template']) {
+    test(`foreign self-closing ${namespace} ${tag} preserves following real content`, () => {
+      const { parseOfficialDocument, parseOfficialPublicationDate } = loadScraper();
+      const foreign = `<${namespace}><${tag} /></${namespace}>`;
+      const foreignTemplate = `<${namespace}><template><${tag} /></template></${namespace}>`;
+      const real = '<li><a href="/info/real.htm">2027年硕士研究生招生简章</a><time>2026-10-06</time></li>';
+      for (const prefix of [foreign, `<template>${foreign}</template>`, foreignTemplate, `<template>${foreignTemplate}</template>`]) {
+        const result = parseOfficialDocument(prefix + real, graduateSource, '2026-10-07T04:00:00Z');
+        assert.deepEqual(result.updates.map(update => update.url), ['https://gs.hainanu.edu.cn/info/real.htm'], prefix);
+        assert.equal(result.diagnostics.candidateCount, 1, prefix);
+        assert.equal(parseOfficialPublicationDate(prefix + '<meta name="PubDate" content="2026-10-06">'), '2026-10-06', prefix);
+      }
+    });
+  }
+}
+
+for (const exception of ['mglyph', 'malignmark']) {
+  test(`MathML ${exception} keeps its namespace at text integration points`, () => {
+    const { parseOfficialDocument, parseOfficialPublicationDate } = loadScraper();
+    const real = '<li><a href="/info/real.htm">2027年硕士研究生招生简章</a><time>2026-10-06</time></li>';
+    const first = real.replace('/real.htm', '/first.htm');
+    for (const integration of ['mi', 'mo', 'mn', 'ms', 'mtext']) {
+      const open = `<math><${integration}><${exception}><script />`;
+      const close = `</script></${exception}></${integration}></math>`;
+      const html = open + first + close;
+      assert.deepEqual(parseOfficialDocument(html + real, graduateSource, '2026-10-13T04:00:00Z').updates.map(update => update.url),
+        ['https://gs.hainanu.edu.cn/info/first.htm', 'https://gs.hainanu.edu.cn/info/real.htm'], integration);
+      assert.equal(parseOfficialPublicationDate(open + '<meta name="PubDate" content="2026-10-12">' + close), '2026-10-12', integration);
+      assert.deepEqual(parseOfficialDocument(`<template>${html}</template>${real}`, graduateSource, '2026-10-13T04:00:00Z').updates.map(update => update.url),
+        ['https://gs.hainanu.edu.cn/info/real.htm'], integration);
+      assert.equal(parseOfficialPublicationDate(`<template>${open}<meta name="PubDate" content="2026-10-12">${close}</template><meta name="PubDate" content="2026-10-06">`),
+        '2026-10-06', integration);
+    }
+  });
+
+  test(`MathML ${exception} exceptions apply only to immediate text-integration children`, () => {
+    const { parseOfficialList } = loadScraper();
+    const real = '<li><a href="/info/real.htm">2027年硕士研究生招生简章</a><time>2026-10-06</time></li>';
+    const fake = real.replace('/real.htm', '/example.htm');
+    for (const wrapper of ['span', 'div', 'a']) {
+      const html = `<math><mtext><${wrapper}><${exception}><script />${fake}</script></${exception}></${wrapper}></mtext></math>${real}`;
+      assert.deepEqual(parseOfficialList(html, graduateSource, '2026-10-13T04:00:00Z').map(update => update.url),
+        ['https://gs.hainanu.edu.cn/info/real.htm'], wrapper);
+    }
+    for (const prefix of ['<span></span>', '<br>', '<img src="icon.png">', `<${exception}/>`]) {
+      const html = `<math><mtext>${prefix}<${exception}><script />${fake}</script></${exception}></mtext></math>${real}`;
+      assert.deepEqual(parseOfficialList(html, graduateSource, '2026-10-13T04:00:00Z').map(update => update.url),
+        ['https://gs.hainanu.edu.cn/info/example.htm', 'https://gs.hainanu.edu.cn/info/real.htm'], prefix);
+    }
+  });
+}
+
+test('HTML integration points inside foreign content still hide script samples', () => {
+  const { parseOfficialDocument } = loadScraper();
+  const fake = '<li><a href="/info/example.htm">2027年硕士研究生招生测试示例</a><time>2026-10-07</time></li>';
+  const real = '<li><a href="/info/real.htm">2027年硕士研究生招生简章</a><time>2026-10-06</time></li>';
+  for (const [opening, closing] of [
+    ['<svg><foreignObject>', '</foreignObject></svg>'],
+    ['<svg><desc>', '</desc></svg>'],
+    ['<math><mtext>', '</mtext></math>'],
+    ['<math><annotation-xml encoding="text/html">', '</annotation-xml></math>'],
+    ['<math><annotation-xml encoding="application/xhtml+xml">', '</annotation-xml></math>'],
+    ['<svg><div>', '</div></svg>']
+  ]) {
+    const html = `${opening}<script />${fake}</script>${closing}${real}`;
+    for (const input of [html, `<template>${html}</template>${real}`]) {
+      assert.deepEqual(parseOfficialDocument(input, graduateSource, '2026-10-07T04:00:00Z').updates.map(update => update.url),
+        ['https://gs.hainanu.edu.cn/info/real.htm'], opening);
+    }
+  }
+});
+
 for (const tag of ['textarea', 'title']) {
   const fake = '<li><a href="/info/example.htm">2027年硕士研究生复试示例公告</a><time>2026-10-03</time></li>';
   const real = '<li><a href="/info/real.htm">2027年硕士研究生招生简章</a><time>2026-10-02</time></li>';

@@ -1,6 +1,6 @@
 const crypto = require('node:crypto');
 // Bump when parser changes make persisted structural diagnostics incomparable.
-const PARSER_DIAGNOSTICS_VERSION = 3;
+const PARSER_DIAGNOSTICS_VERSION = 5;
 const SHANGHAI_DATE_FORMAT = new Intl.DateTimeFormat('en-US', {
   timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit'
 });
@@ -18,6 +18,14 @@ const INLINE_TITLE_TAGS = new Set([
   'font', 'sub', 'sup', 'abbr', 'bdi', 'bdo', 'cite', 'code', 'dfn', 'kbd', 'samp', 'var', 'wbr'
 ]);
 const RCDATA_TAGS = new Set(['textarea', 'title']);
+const HTML_VOID_TAGS = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source', 'track', 'wbr']);
+const MATHML_TEXT_INTEGRATION_TAGS = new Set(['mi', 'mo', 'mn', 'ms', 'mtext']);
+const FOREIGN_BREAKOUT_TAGS = new Set([
+  'b', 'big', 'blockquote', 'body', 'br', 'center', 'code', 'dd', 'div', 'dl', 'dt',
+  'em', 'embed', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'head', 'hr', 'i', 'img',
+  'li', 'listing', 'menu', 'meta', 'nobr', 'ol', 'p', 'pre', 'ruby', 's', 'small',
+  'span', 'strong', 'strike', 'sub', 'sup', 'table', 'tt', 'u', 'ul', 'var'
+]);
 
 function decodeHtmlEntities(value) {
   return String(value || '').replace(/&(#x?[0-9a-f]+|[a-z]+);/gi, (entity, code) => {
@@ -178,7 +186,8 @@ function readHtmlTag(source, start) {
     closing = true;
     index += 1;
   }
-  while (/\s/.test(source[index] || '')) index += 1;
+  // HTML requires the tag name immediately after < or </; whitespace here
+  // is literal text (or a bogus end-tag comment), not a tag boundary.
   if (!/[A-Za-z]/.test(source[index] || '')) return null;
 
   const nameStart = index;
@@ -186,18 +195,21 @@ function readHtmlTag(source, start) {
   const name = source.slice(nameStart, index).toLowerCase();
   const attributesStart = index;
   let quote = null;
-  let lastSignificantCharacter = null;
+  let valueState = null;
   let slashAtBoundary = false;
-  let lastWasWhitespace = true;
   for (; index < source.length; index += 1) {
     const character = source[index];
     if (quote) {
-      if (character === quote) quote = null;
+      if (character === quote) {
+        quote = null;
+        valueState = null;
+      }
       continue;
     }
-    if (character === '"' || character === "'") {
+    // A quote only opens a quoted value immediately after an attribute's =.
+    // Quotes embedded in unquoted values remain literal HTML parse errors.
+    if (valueState === 'before' && (character === '"' || character === "'")) {
       quote = character;
-      lastWasWhitespace = false;
       continue;
     }
     if (character === '>') {
@@ -205,17 +217,19 @@ function readHtmlTag(source, start) {
         name,
         closing,
         attributesStart,
-        selfClosing: !closing && lastSignificantCharacter === '/' && slashAtBoundary,
+        selfClosing: !closing && source[index - 1] === '/' && slashAtBoundary,
         end: index + 1
       };
     }
     if (/\s/.test(character)) {
-      lastWasWhitespace = true;
+      if (valueState === 'unquoted') valueState = null;
       continue;
     }
-    lastSignificantCharacter = character;
-    if (character === '/') slashAtBoundary = lastWasWhitespace;
-    lastWasWhitespace = false;
+    if (valueState === 'before') valueState = 'unquoted';
+    else if (valueState === null && character === '=') valueState = 'before';
+    // A slash after an attribute name is valid too. Only an unquoted value
+    // consumes it as text; a self-closing slash must immediately precede >.
+    if (character === '/') slashAtBoundary = valueState !== 'unquoted';
   }
   return null;
 }
@@ -255,9 +269,51 @@ function findRawElementEnd(source, start, name) {
   return match ? readHtmlTag(source, match.index)?.end || source.length : source.length;
 }
 
+function createMarkupContextTracker(source, templateRoot = false) {
+  // Track namespace boundaries and their HTML descendants, so integration-point
+  // exceptions apply only to immediate children, not nested HTML wrappers.
+  const contexts = templateRoot ? [{ name: 'template', namespace: 'html', elementNamespace: 'html' }] : [];
+  return (tag) => {
+    let namespace = contexts.at(-1)?.namespace || 'html';
+    if (tag.closing) {
+      for (let index = contexts.length - 1; index >= 0; index -= 1) {
+        if (contexts[index].name === tag.name) {
+          namespace = contexts[index].elementNamespace;
+          contexts.length = index;
+          break;
+        }
+      }
+      return namespace;
+    }
+    const breaksOut = FOREIGN_BREAKOUT_TAGS.has(tag.name) || tag.name === 'font' &&
+      ['color', 'face', 'size'].some(name => readHtmlAttribute(source, tag, name) !== null);
+    if (namespace !== 'html' && breaksOut) {
+      while (contexts.length && contexts.at(-1).namespace !== 'html') contexts.pop();
+      namespace = 'html';
+    }
+    const parent = contexts.at(-1);
+    const mathTextException = namespace === 'html' && parent?.elementNamespace === 'math' &&
+      MATHML_TEXT_INTEGRATION_TAGS.has(parent.name) && ['mglyph', 'malignmark'].includes(tag.name);
+    if (mathTextException) namespace = 'math';
+    if (namespace === 'html' && (tag.name === 'svg' || tag.name === 'math')) namespace = tag.name;
+    if (namespace !== 'html' && tag.selfClosing) return namespace;
+    const integrationPoint = namespace === 'svg' && ['foreignobject', 'desc', 'title'].includes(tag.name) ||
+      namespace === 'math' && (MATHML_TEXT_INTEGRATION_TAGS.has(tag.name) ||
+        tag.name === 'annotation-xml' && /^(?:text\/html|application\/xhtml\+xml)$/i.test(
+          decodeHtmlEntities(readHtmlAttribute(source, tag, 'encoding') || '')
+        ));
+    const htmlDescendant = contexts.length > 0 && namespace === 'html' && !HTML_VOID_TAGS.has(tag.name);
+    if (tag.name === 'svg' || tag.name === 'math' || tag.name === 'template' || integrationPoint || mathTextException || htmlDescendant) {
+      contexts.push({ name: tag.name, namespace: integrationPoint ? 'html' : namespace, elementNamespace: namespace });
+    }
+    return namespace;
+  };
+}
+
 function findTemplateEnd(source, start) {
   let depth = 1;
   let index = start;
+  const trackContext = createMarkupContextTracker(source, true);
   while (index < source.length) {
     if (source.startsWith('<!--', index)) {
       index = findCommentEnd(source, index);
@@ -268,16 +324,21 @@ function findTemplateEnd(source, start) {
       index += 1;
       continue;
     }
-    if (!tag.closing && (RCDATA_TAGS.has(tag.name) ||
-        !tag.selfClosing && (tag.name === 'script' || tag.name === 'style'))) {
-      index = findRawElementEnd(source, tag.end, tag.name);
+    const namespace = trackContext(tag);
+    if (namespace !== 'html' && tag.selfClosing) {
+      index = tag.end;
       continue;
     }
-    if (tag.name === 'template') {
+    if (!tag.closing && (RCDATA_TAGS.has(tag.name) || tag.name === 'script' || tag.name === 'style')) {
+      index = findRawElementEnd(source, tag.end, tag.name);
+      trackContext({ ...tag, closing: true });
+      continue;
+    }
+    if (tag.name === 'template' && namespace === 'html') {
       if (tag.closing) {
         depth -= 1;
         if (depth === 0) return tag.end;
-      } else if (!tag.selfClosing) {
+      } else {
         depth += 1;
       }
     }
@@ -296,6 +357,7 @@ function maskNonVisibleRegions(content) {
   const source = String(content || '');
   const output = source.split('');
   let index = 0;
+  const trackContext = createMarkupContextTracker(source);
 
   while (index < source.length) {
     if (source.startsWith('<!--', index)) {
@@ -309,19 +371,25 @@ function maskNonVisibleRegions(content) {
       index += 1;
       continue;
     }
-    // RCDATA cannot contribute notice markup or publication metadata. In HTML,
-    // a trailing slash does not self-close textarea/title elements.
-    if (!tag.closing && (RCDATA_TAGS.has(tag.name) ||
-        !tag.selfClosing && (tag.name === 'script' || tag.name === 'style'))) {
+    const namespace = trackContext(tag);
+    if (namespace !== 'html' && tag.selfClosing) {
+      index = tag.end;
+      continue;
+    }
+    // Raw text and RCDATA cannot contribute notice markup or publication
+    // metadata. HTML ignores trailing slashes on these non-void elements.
+    if (!tag.closing && (RCDATA_TAGS.has(tag.name) || tag.name === 'script' || tag.name === 'style')) {
       const end = findRawElementEnd(source, tag.end, tag.name);
       maskRange(output, index, end);
       index = end;
+      trackContext({ ...tag, closing: true });
       continue;
     }
-    if (!tag.closing && !tag.selfClosing && tag.name === 'template') {
+    if (!tag.closing && tag.name === 'template' && namespace === 'html') {
       const end = findTemplateEnd(source, tag.end);
       maskRange(output, index, end);
       index = end;
+      trackContext({ ...tag, closing: true });
       continue;
     }
     index = tag.end;
