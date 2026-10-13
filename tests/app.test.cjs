@@ -250,11 +250,7 @@ function installFakePage(options = {}) {
     ['[data-skip-check]', options.skipButtons || []],
     ['[data-filter]', []],
     ['[data-print]', []],
-    ['.section-nav a', options.sectionNavLinks || []],
-    ['.section-nav a[href^="#"], .page-toc a[href^="#"]', [
-      ...(options.sectionNavLinks || []),
-      ...(options.pageTocLinks || [])
-    ]],
+    ['.page-toc a[href^="#"]', options.pageTocLinks || []],
     ['main section[id]', options.sections || []],
     ['[data-updates-filter]', [elements.updateAll, elements.updateNew]],
     ['.verified-date', options.verifiedDates || []],

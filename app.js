@@ -660,9 +660,8 @@
       });
     }
 
-    function renderUpdates(updates, unseenIds = new Set()) {
+    function renderUpdates(displayUpdates) {
       if (!updatesList) return;
-      const displayUpdates = aggregateUpdatesForDisplay(updates, unseenIds, acknowledgedUpdateIds);
       const displayNewIds = new Set(displayUpdates.filter((update) => update.isNew).map((update) => update.id));
       const filters = { year: yearFilter?.value || 'all', category: categoryFilter?.value || 'all' };
       const selection = selectUpdatesForDisplay(displayUpdates, displayNewIds, new Set(), updateView, filters);
@@ -809,21 +808,19 @@
       consoleElement.dataset.state = 'offline';
       if (statusTitle) statusTitle.textContent = '自动更新未连接';
       if (statusDetail) statusDetail.textContent = message;
-      if (!hasRenderedSnapshot) {
-        if (lastSuccess) lastSuccess.textContent = '—';
-        if (freshness) freshness.textContent = '服务未连接';
-        if (nextRefresh) nextRefresh.textContent = isCloud ? '连接恢复后启用' : '启动服务后启用';
-        if (sourceCount) sourceCount.textContent = '0 / 4 连接';
-        if (newCount) newCount.hidden = true;
-        if (sourceHealth) sourceHealth.replaceChildren();
-        if (updatesList) {
-          const empty = createTextElement('li', 'official-update-empty');
-          empty.append(
-            createTextElement('strong', '', '静态导航仍可正常使用'),
-            createTextElement('span', '', isCloud ? '在线通知服务暂不可用，请稍后重试或进入官方信源页查看原文。' : '启动本地服务后，这里会显示自动获取的海南大学官方通知。')
-          );
-          updatesList.replaceChildren(empty);
-        }
+      if (lastSuccess) lastSuccess.textContent = '—';
+      if (freshness) freshness.textContent = '服务未连接';
+      if (nextRefresh) nextRefresh.textContent = isCloud ? '连接恢复后启用' : '启动服务后启用';
+      if (sourceCount) sourceCount.textContent = '0 / 4 连接';
+      if (newCount) newCount.hidden = true;
+      if (sourceHealth) sourceHealth.replaceChildren();
+      if (updatesList) {
+        const empty = createTextElement('li', 'official-update-empty');
+        empty.append(
+          createTextElement('strong', '', '静态导航仍可正常使用'),
+          createTextElement('span', '', isCloud ? '在线通知服务暂不可用，请稍后重试或进入官方信源页查看原文。' : '启动本地服务后，这里会显示自动获取的海南大学官方通知。')
+        );
+        updatesList.replaceChildren(empty);
       }
     }
 
@@ -906,7 +903,7 @@
         newCount.textContent = unacknowledgedCount ? `${unacknowledgedCount} 条新收录` : '';
       }
       // Local read-state changes must not overwrite the latest connection status.
-      renderUpdates(latestPayload.updates, unseenIds);
+      renderUpdates(displayUpdates);
     }
     function changeUpdatesPage(offset) {
       if (!latestPayload) return;
@@ -1224,7 +1221,7 @@
       button.addEventListener('click', () => window.print());
     });
 
-    const navLinks = Array.from(document.querySelectorAll('.section-nav a[href^="#"], .page-toc a[href^="#"]'));
+    const navLinks = Array.from(document.querySelectorAll('.page-toc a[href^="#"]'));
     if ('IntersectionObserver' in window) {
       const observer = new IntersectionObserver((entries) => {
         entries.forEach((entry) => {

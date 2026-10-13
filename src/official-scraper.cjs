@@ -26,6 +26,13 @@ const FOREIGN_BREAKOUT_TAGS = new Set([
   'li', 'listing', 'menu', 'meta', 'nobr', 'ol', 'p', 'pre', 'ruby', 's', 'small',
   'span', 'strong', 'strike', 'sub', 'sup', 'table', 'tt', 'u', 'ul', 'var'
 ]);
+const GRADUATE_ACTION_PATTERN = /招生简章|招生章程|专业目录|考试大纲|初试科目|考试科目|网上报名|预报名|报名公告|网上确认|报考点|准考资格|报考材料|准考证|成绩|分数线|排名查询|复试|调剂|拟录取|录取|推免|推荐免试/;
+const SHORT_ACTION_PATTERNS = {
+  'graduate-admissions-list': GRADUATE_ACTION_PATTERN,
+  'hnu-master': GRADUATE_ACTION_PATTERN,
+  'hnu-home': /网上报名|预报名|报名公告|网上确认|报考点|考点|准考资格|准考证|研考|推荐免试/,
+  'hnu-computer': /招生简章|招生章程|专业目录|考试大纲|初试科目|考试科目|成绩|分数线|排名查询|复试|调剂|拟录取|录取|推免|推荐免试/
+};
 
 function decodeHtmlEntities(value) {
   return String(value || '').replace(/&(#x?[0-9a-f]+|[a-z]+);/gi, (entity, code) => {
@@ -55,17 +62,6 @@ function cleanText(value, preserveInline = false) {
     .replace(/[\u200B-\u200D\uFEFF]/g, '')
     .replace(/\s+/g, ' ')
     .trim();
-}
-
-function isOfficialHainanUniversityUrl(value) {
-  try {
-    const url = new URL(value);
-    return url.protocol === 'https:' && (
-      url.hostname === 'hainanu.edu.cn' || url.hostname.endsWith('.hainanu.edu.cn')
-    );
-  } catch {
-    return false;
-  }
 }
 
 function isAllowedOfficialUrl(value, source) {
@@ -139,13 +135,7 @@ function isRelevantTitle(title, source) {
   if (explicitlyOtherLevel) return false;
   const graduateContext = /硕士|考研|研考|研究生招生|全国硕士研究生招生考试/.test(title);
   const actionable = /招生|简章|章程|专业目录|考试|科目|大纲|报名|确认|报考|考点|准考|成绩|分数线|复试|调剂|录取|推免|推荐免试|材料/.test(title);
-  const shortActionPatterns = {
-    'graduate-admissions-list': /招生简章|招生章程|专业目录|考试大纲|初试科目|考试科目|网上报名|预报名|报名公告|网上确认|报考点|准考资格|报考材料|准考证|成绩|分数线|排名查询|复试|调剂|拟录取|录取|推免|推荐免试/,
-    'hnu-master': /招生简章|招生章程|专业目录|考试大纲|初试科目|考试科目|网上报名|预报名|报名公告|网上确认|报考点|准考资格|报考材料|准考证|成绩|分数线|排名查询|复试|调剂|拟录取|录取|推免|推荐免试/,
-    'hnu-home': /网上报名|预报名|报名公告|网上确认|报考点|考点|准考资格|准考证|研考|推荐免试/,
-    'hnu-computer': /招生简章|招生章程|专业目录|考试大纲|初试科目|考试科目|成绩|分数线|排名查询|复试|调剂|拟录取|录取|推免|推荐免试/
-  };
-  const contextAction = shortActionPatterns[source?.context];
+  const contextAction = SHORT_ACTION_PATTERNS[source?.context];
   if (!actionable) return false;
   return graduateContext || Boolean(contextAction?.test(title));
 }
@@ -719,7 +709,7 @@ function parseOfficialDocument(html, source, checkedAt = new Date().toISOString(
     if (!isAllowedOfficialUrl(url, source)) continue;
 
     const category = categorizeTitle(title, source);
-    const isTarget2027 = /2027|2027年/.test(title);
+    const isTarget2027 = /2027/.test(title);
     const isImportant = source.context === 'national-policy' || /招生简章|招生章程|专业目录|初试科目|考试科目|考试大纲|网上报名|预报名|报名公告|准考资格|复试|调剂/.test(title);
 
     const update = {
@@ -774,7 +764,6 @@ module.exports = {
   categorizeTitle,
   cleanText,
   isAllowedOfficialUrl,
-  isOfficialHainanUniversityUrl,
   isRelevantAdmissionCycle,
   mergeAndRankUpdates,
   parseOfficialDocument,
