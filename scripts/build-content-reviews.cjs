@@ -6,15 +6,15 @@ const reviews = {
   scores: { label: '2026 届分数数据', date: require('../src/admissions-2026.json').verifiedAt }
 };
 const pageReviews = {
-  index: ['national', 'directory', 'baseline'],
+  index: ['national', 'registration', 'directory', 'baseline'],
   programs: ['directory', 'baseline'],
   scores: ['scores'],
   preparation: ['national', 'directory', 'baseline'],
-  timeline: ['national', 'directory', 'baseline'],
-  application: ['national', 'directory', 'baseline'],
-  materials: ['national', 'directory'],
+  timeline: ['national', 'registration', 'directory', 'baseline'],
+  application: ['national', 'registration', 'directory', 'baseline'],
+  materials: ['national', 'registration', 'directory'],
   updates: ['national'],
-  sources: ['national', 'directory', 'baseline']
+  sources: ['national', 'registration', 'directory', 'baseline']
 };
 
 function renderReviewDates(html, page, metadata = reviews) {

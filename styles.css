@@ -537,6 +537,9 @@ main { min-width: 0; }
 .special-note summary { padding: 17px 20px; cursor: pointer; font-size: .78rem; font-weight: 700; }
 .special-note div { padding: 0 20px 18px; color: var(--ink-soft); font-size: .76rem; }
 .special-note p { margin: 0; }
+.review-deadlines { padding: 20px; }
+.review-deadlines h3 { margin: 0 0 12px; font-size: 1rem; }
+.review-deadlines p + p { margin-top: 12px; }
 
 .exam-layout { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 .exam-card { min-height: 440px; padding: 30px; border: 1px solid var(--line); border-radius: var(--radius-lg); }
