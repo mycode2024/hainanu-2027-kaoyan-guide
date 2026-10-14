@@ -4,6 +4,8 @@
   const DAY_MS = 86_400_000;
   const STORAGE_KEY = 'hainanu-2027-kaoyan-progress-v1';
   const LAST_SEEN_UPDATES_KEY = 'hainanu-2027-kaoyan-last-seen-v1';
+  let sessionChecklistState = {};
+  let sessionProgressOnly = false;
   const CHECKLIST_IDS = Object.freeze([
     'program-academic', 'program-computer', 'program-software',
     'stage-baseline', 'stage-directory', 'stage-preapply', 'stage-apply', 'stage-confirm',
@@ -356,8 +358,8 @@
     });
   }
 
-  function showSessionStorageWarning() {
-    const warning = document.querySelector('#storage-session-warning');
+  function showSessionStorageWarning(root = document) {
+    const warning = root.querySelector('#storage-session-warning');
     if (warning) warning.hidden = false;
   }
 
@@ -413,11 +415,11 @@
     return element;
   }
 
-  function enhanceNoticeSelects(selects) {
+  function enhanceNoticeSelects(selects, scope = document) {
     const widgets = [];
     selects.filter((select) => select?.options?.length).forEach((select) => {
       const options = Array.from(select.options);
-      const label = document.querySelector(`label[for="${select.id}"]`);
+      const label = scope.querySelector(`label[for="${select.id}"]`);
       const root = createTextElement('div', 'filter-select');
       const trigger = createTextElement('button', 'filter-select-trigger');
       trigger.type = 'button';
@@ -443,7 +445,7 @@
       }
       root.append(trigger);
       select.after(root);
-      document.body.append(menu);
+      (scope === document ? document.body : scope).append(menu);
       select.hidden = true;
       let open = false;
       let activeIndex = Math.max(0, select.selectedIndex);
@@ -523,7 +525,7 @@
       trigger.addEventListener('click', () => open ? close() : expand());
       trigger.addEventListener('keydown', (event) => {
         if (event.key === 'Tab') { if (open) commit(); return; }
-        if (event.key === 'Escape') { if (open) { event.preventDefault(); close(); } return; }
+        if (event.key === 'Escape') { if (open) { event.preventDefault(); event.stopPropagation(); close(); } return; }
         if (event.key === 'Enter' || event.key === ' ') {
           event.preventDefault();
           if (open) commit(); else expand();
@@ -569,33 +571,34 @@
     }, true);
   }
 
-  function initOfficialUpdates() {
+  function initOfficialUpdates(root = document) {
+    const isInactive = () => document.visibilityState === 'hidden' || (root !== document && (!root.isConnected || !root.closest('dialog')?.open));
     const isCloud = document.body?.dataset?.hosting === 'vercel';
-    const consoleElement = document.querySelector('#live-updates-console');
-    const refreshButton = document.querySelector('#refresh-official-updates');
+    const consoleElement = root.querySelector('#live-updates-console');
+    const refreshButton = root.querySelector('#refresh-official-updates');
     if (!consoleElement || !refreshButton) return;
 
-    const statusTitle = document.querySelector('#live-status-title');
-    const statusDetail = document.querySelector('#live-status-detail');
-    const lastSuccess = document.querySelector('#live-last-success');
-    const freshness = document.querySelector('#live-freshness');
-    const nextRefresh = document.querySelector('#live-next-refresh');
-    const sourceCount = document.querySelector('#live-source-count');
-    const newCount = document.querySelector('#live-new-count');
-    const sourceHealth = document.querySelector('#live-source-health');
-    const updatesList = document.querySelector('#official-updates-list');
-    const previousPageButton = document.querySelector('#updates-previous');
-    const nextPageButton = document.querySelector('#updates-next');
-    const pageStatus = document.querySelector('#updates-page-status');
+    const statusTitle = root.querySelector('#live-status-title');
+    const statusDetail = root.querySelector('#live-status-detail');
+    const lastSuccess = root.querySelector('#live-last-success');
+    const freshness = root.querySelector('#live-freshness');
+    const nextRefresh = root.querySelector('#live-next-refresh');
+    const sourceCount = root.querySelector('#live-source-count');
+    const newCount = root.querySelector('#live-new-count');
+    const sourceHealth = root.querySelector('#live-source-health');
+    const updatesList = root.querySelector('#official-updates-list');
+    const previousPageButton = root.querySelector('#updates-previous');
+    const nextPageButton = root.querySelector('#updates-next');
+    const pageStatus = root.querySelector('#updates-page-status');
     let updatesPage = 1;
     let updatesPageCount = 1;
-    const updateFilterButtons = Array.from(document.querySelectorAll('[data-updates-filter]'));
-    const yearFilter = document.querySelector('#updates-year');
-    const categoryFilter = document.querySelector('#updates-category');
-    const noticeFilters = document.querySelector('.notice-filters');
+    const updateFilterButtons = Array.from(root.querySelectorAll('[data-updates-filter]'));
+    const yearFilter = root.querySelector('#updates-year');
+    const categoryFilter = root.querySelector('#updates-category');
+    const noticeFilters = root.querySelector('.notice-filters');
     if (noticeFilters) noticeFilters.hidden = false;
-    enhanceNoticeSelects([yearFilter, categoryFilter]);
-    const acknowledgeUpdatesButton = document.querySelector('#acknowledge-official-updates');
+    enhanceNoticeSelects([yearFilter, categoryFilter], root);
+    const acknowledgeUpdatesButton = root.querySelector('#acknowledge-official-updates');
     let hasRenderedSnapshot = false;
     let unseenBaselineAt = null;
     let latestPayload = null;
@@ -621,7 +624,7 @@
         advance(storedAt);
       } catch {
         storage = null;
-        showSessionStorageWarning();
+        showSessionStorageWarning(root);
       }
       // Polling preserves the baseline; only an explicit acknowledgement advances it.
       if (!unseenBaselineAt || acknowledge) advance(observedAt);
@@ -629,7 +632,7 @@
         try {
           storage.setItem(LAST_SEEN_UPDATES_KEY, unseenBaselineAt);
         } catch {
-          showSessionStorageWarning();
+          showSessionStorageWarning(root);
         }
       }
     }
@@ -827,12 +830,12 @@
     function scheduleNextPoll() {
       if (pollTimer) window.clearTimeout(pollTimer);
       pollTimer = null;
-      if (document.visibilityState === 'hidden') return;
+      if (isInactive()) return;
       pollTimer = window.setTimeout(() => loadUpdates(false), 60 * 1000);
     }
 
     async function loadUpdates(manual = false) {
-      if (requestInFlight || (!manual && document.visibilityState === 'hidden')) return;
+      if (requestInFlight || (!manual && isInactive())) return;
       requestInFlight = true;
       const controller = new AbortController();
       activeRequestController = controller;
@@ -868,7 +871,7 @@
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         renderSnapshot(await response.json());
       } catch {
-        if (document.visibilityState !== 'hidden') {
+        if (!isInactive()) {
           renderDisconnected(hasRenderedSnapshot
             ? '本次同步失败，已保留当前页面中的最近数据。'
             : isCloud ? '在线通知服务暂未响应，请稍后重试；各导航页面仍可使用。'
@@ -883,7 +886,7 @@
           refreshButton.removeAttribute('aria-busy');
           refreshButton.textContent = '立即同步';
         }
-        if (resumePending && document.visibilityState !== 'hidden') {
+        if (resumePending && !isInactive()) {
           resumePending = false;
           loadUpdates(false);
           return;
@@ -945,7 +948,7 @@
     }
 
     document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'hidden') {
+      if (isInactive()) {
         if (pollTimer) window.clearTimeout(pollTimer);
         pollTimer = null;
         activeRequestController?.abort();
@@ -964,7 +967,7 @@
           try {
             if (event.storageArea !== window.localStorage) return;
           } catch {
-            showSessionStorageWarning();
+            showSessionStorageWarning(root);
             return;
           }
           // Read current storage: a queued event may describe an older write.
@@ -973,6 +976,14 @@
         }
       });
     }
+    document.addEventListener('guide-panel-change', () => {
+      if (isInactive()) {
+        if (pollTimer) window.clearTimeout(pollTimer);
+        pollTimer = null;
+        activeRequestController?.abort();
+      } else if (requestInFlight) resumePending = true;
+      else loadUpdates(false);
+    });
     loadUpdates(false);
   }
 
@@ -1008,14 +1019,388 @@
     return destinations[`${page}${hash}`] || null;
   }
 
-  function initPage() {
-    const legacyDestination = getLegacyPageDestination(window.location.pathname, window.location.hash);
+  // Group existing source content, so the full-page and card views stay in sync.
+  function initReadingGroups(root, page) {
+    const configurations = {
+      programs: [
+        ['学硕 · 081200', '.program-card:nth-child(1)'],
+        ['计技 · 085404', '.program-card:nth-child(2)'],
+        ['软工 · 085405', '.program-card:nth-child(3)'],
+        ['目录说明', '.data-note, .baseline-note']
+      ],
+      scores: [
+        ['分数概览', '.score-overview, .baseline-note, .score-section > .score-table-wrap'],
+        ['分数分布', '.score-distributions'],
+        ['专项与复试', '.score-details'],
+        ['统计说明', '.score-method, .score-sources']
+      ],
+      preparation: [
+        ['408 初试', '.exam-card-dark'], ['复试参考', '.exam-card:not(.exam-card-dark)'],
+        ['备考节奏', '.prep-calendar'], ['风险提醒', '#risks']
+      ],
+      application: [
+        ['报名前须知', '.critical-difference, #apply-guide > .baseline-note'],
+        ['八步填报', '.apply-steps'], ['审核期限', '#review-deadlines']
+      ],
+      materials: [
+        ['八项材料', '.checklist-grid'], ['材料期限', '.review-deadlines'],
+        ['报考资格', 'details.special-note']
+      ],
+      sources: [['官方入口', '.source-list'], ['咨询电话', '.contact-card']]
+    };
+    const configuration = configurations[page];
+    const groups = configuration?.map(([label, selector]) => ({ label, nodes: Array.from(root.querySelectorAll(selector)) }))
+      .filter(group => group.nodes.length) || [];
+    groups.forEach(group => {
+      group.sectionIds = new Set(group.nodes.map(node => node.closest('section')?.id).filter(Boolean));
+    });
+    let activate = null;
+    if (groups.length > 1) {
+      const tabs = createTextElement('div', 'reading-tabs');
+      tabs.setAttribute('role', 'tablist');
+      tabs.setAttribute('aria-label', '选择查看内容');
+      const panes = createTextElement('div', 'reading-panes');
+      const unique = `reading-${page}-${root.classList.contains('guide-panel') ? 'card' : 'page'}`;
+      const buttons = groups.map((group, index) => {
+        const button = createTextElement('button', '', group.label);
+        button.type = 'button';
+        button.id = `${unique}-tab-${index}`;
+        button.setAttribute('role', 'tab');
+        button.setAttribute('aria-controls', `${unique}-pane-${index}`);
+        const pane = createTextElement('div', 'reading-pane');
+        pane.id = `${unique}-pane-${index}`;
+        pane.setAttribute('role', 'tabpanel');
+        pane.setAttribute('aria-labelledby', button.id);
+        pane.tabIndex = 0;
+        group.nodes.forEach(node => pane.append(node));
+        // A tab already supplies the reveal control for these short notes.
+        pane.querySelectorAll('details.special-note, details.score-details').forEach(node => { node.open = true; });
+        group.pane = pane;
+        tabs.append(button);
+        panes.append(pane);
+        return button;
+      });
+      activate = (index, focus = false) => {
+        groups.forEach((group, i) => {
+          group.pane.hidden = i !== index;
+          buttons[i].setAttribute('aria-selected', String(i === index));
+          buttons[i].tabIndex = i === index ? 0 : -1;
+        });
+        if (focus) buttons[index].focus({ preventScroll: true });
+      };
+      buttons.forEach((button, index) => {
+        button.addEventListener('click', () => activate(index));
+        button.addEventListener('keydown', event => {
+          const offset = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0;
+          if (!offset && event.key !== 'Home' && event.key !== 'End') return;
+          event.preventDefault();
+          const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 : (index + offset + buttons.length) % buttons.length;
+          activate(next, true);
+        });
+      });
+      root.append(tabs, panes);
+      activate(0);
+      root.classList.add('reading-grouped');
+    }
+    root.querySelectorAll('.section-heading > p').forEach(description => {
+      const note = createTextElement('details', 'reading-context');
+      note.append(createTextElement('summary', '', '阅读说明与核对依据'));
+      description.before(note);
+      note.append(description);
+    });
+    initTimelineCards(root);
+    initApplicationSteps(root);
+    root.guideReveal = hash => {
+      if (!hash) return;
+      let id;
+      try { id = decodeURIComponent(hash.replace(/^#/, '')); } catch { return; }
+      const target = Array.from(root.querySelectorAll('[id]')).find(node => node.id === id);
+      if (!target) return;
+      let index = groups.findIndex(group => group.pane.contains(target));
+      if (index < 0 && target.tagName === 'SECTION') index = groups.findIndex(group => group.sectionIds.has(id));
+      if (index >= 0) activate(index);
+      if (id === 'timeline' && !root.querySelector('.timeline-detail')?.hidden) root.querySelector('[data-timeline-back]')?.click();
+      for (let node = target.parentElement; node && node !== root; node = node.parentElement) {
+        if (node.tagName === 'DETAILS') node.open = true;
+      }
+    };
+  }
+
+  function initTimelineCards(root) {
+    const list = root.querySelector('.timeline-list');
+    if (!list) return;
+    list.classList.add('timeline-compact');
+    const toolbar = root.querySelector('.timeline-toolbar');
+    const detail = createTextElement('div', 'timeline-detail');
+    detail.hidden = true;
+    const back = createTextElement('button', 'text-button', '← 返回节点');
+    back.type = 'button';
+    back.dataset.timelineBack = '';
+    const content = createTextElement('div', 'timeline-detail-content');
+    detail.append(back, content);
+    list.after(detail);
+    let selected = null;
+    let printState = null;
+    window.addEventListener('beforeprint', () => {
+      if (printState || !root.isConnected) return;
+      printState = { hidden: Array.from(list.children).filter(item => item.hidden) };
+      printState.hidden.forEach(item => { item.hidden = false; });
+      if (selected) {
+        selected.item.append(selected.body);
+        list.hidden = false;
+        detail.hidden = true;
+      }
+    });
+    window.addEventListener('afterprint', () => {
+      if (!printState) return;
+      printState.hidden.forEach(item => { item.hidden = true; });
+      if (selected) {
+        content.replaceChildren(selected.item.querySelector('.timeline-date').cloneNode(true), selected.body);
+        list.hidden = true;
+        detail.hidden = false;
+      }
+      printState = null;
+    });
+    back.addEventListener('click', () => {
+      if (!selected) return;
+      selected.item.append(selected.body);
+      detail.hidden = true;
+      list.hidden = false;
+      if (toolbar) toolbar.hidden = false;
+      selected.button.focus({ preventScroll: true });
+      selected = null;
+    });
+    list.querySelectorAll('.timeline-item').forEach(item => {
+      const body = item.querySelector('.timeline-body');
+      const button = createTextElement('button', 'timeline-launch');
+      button.type = 'button';
+      button.append(createTextElement('strong', '', item.dataset.label || body.querySelector('h3').textContent),
+        createTextElement('span', '', '查看任务 ↗'));
+      item.append(button);
+      button.addEventListener('click', () => {
+        selected = { item, body, button };
+        content.replaceChildren(item.querySelector('.timeline-date').cloneNode(true), body);
+        list.hidden = true;
+        if (toolbar) toolbar.hidden = true;
+        detail.hidden = false;
+        back.focus({ preventScroll: true });
+      });
+    });
+  }
+
+  function initApplicationSteps(root) {
+    const list = root.querySelector('.apply-steps');
+    if (!list) return;
+    const steps = Array.from(list.children);
+    const picker = createTextElement('div', 'step-picker');
+    picker.setAttribute('role', 'group');
+    picker.setAttribute('aria-label', '选择填报步骤');
+    const controls = createTextElement('div', 'step-controls');
+    const previous = createTextElement('button', 'button button-outline', '← 上一步');
+    const next = createTextElement('button', 'button button-outline', '下一步 →');
+    const status = createTextElement('span');
+    status.setAttribute('aria-live', 'polite');
+    previous.type = next.type = 'button';
+    controls.append(previous, status, next);
+    let current = 0;
+    const buttons = steps.map((step, index) => {
+      const button = createTextElement('button', '', String(index + 1).padStart(2, '0'));
+      button.type = 'button';
+      button.setAttribute('aria-label', `第 ${index + 1} 步：${step.querySelector('h3').textContent}`);
+      button.addEventListener('click', () => select(index));
+      picker.append(button);
+      return button;
+    });
+    function select(index) {
+      current = index;
+      steps.forEach((step, i) => {
+        step.hidden = i !== index;
+        buttons[i].setAttribute('aria-pressed', String(i === index));
+      });
+      status.textContent = `${index + 1} / ${steps.length}`;
+      previous.disabled = index === 0;
+      next.disabled = index === steps.length - 1;
+    }
+    previous.addEventListener('click', () => select(Math.max(0, current - 1)));
+    next.addEventListener('click', () => select(Math.min(steps.length - 1, current + 1)));
+    list.classList.add('step-reader');
+    list.before(picker);
+    list.after(controls);
+    select(0);
+  }
+
+  function initGuideCards() {
+    if (typeof HTMLDialogElement === 'undefined' || !HTMLDialogElement.prototype.showModal) return;
+    const main = document.querySelector('main');
+    if (!main) return;
+    const pageNames = {
+      programs: '专业选择', scores: '2026 届分数', preparation: '初复试备考',
+      timeline: '全年时间轴', application: '报名流程', materials: '材料清单',
+      updates: '官方动态', sources: '官方信源'
+    };
+    initReadingGroups(main, document.body.dataset.page);
+    main.guideReveal(window.location.hash);
+    window.addEventListener('hashchange', () => main.guideReveal(window.location.hash));
+    let closedPrintDetails = [];
+    window.addEventListener('beforeprint', () => {
+      closedPrintDetails = Array.from(document.querySelectorAll('details:not([open])'));
+      closedPrintDetails.forEach(details => { details.open = true; });
+    });
+    window.addEventListener('afterprint', () => {
+      closedPrintDetails.forEach(details => { details.open = false; });
+      closedPrintDetails = [];
+    });
+    document.body.classList.add('guide-cards-ready');
+    const dialog = createTextElement('dialog', 'guide-dialog');
+    dialog.setAttribute('aria-labelledby', 'guide-dialog-title');
+    const header = createTextElement('div', 'guide-dialog-header');
+    const heading = createTextElement('div', 'guide-dialog-heading');
+    const back = createTextElement('button', 'guide-back', '←');
+    back.type = 'button'; back.setAttribute('aria-label', '返回上一张卡片'); back.hidden = true;
+    const titleBlock = createTextElement('div');
+    titleBlock.append(createTextElement('p', 'guide-dialog-kicker', 'HNU 2027 / 随看随收'));
+    const title = createTextElement('h2'); title.id = 'guide-dialog-title';
+    titleBlock.append(title); heading.append(back, titleBlock);
+    const close = createTextElement('button', 'guide-close', '×');
+    close.type = 'button'; close.dataset.guideClose = ''; close.setAttribute('aria-label', '关闭卡片');
+    header.append(heading, close);
+    const viewport = createTextElement('div', 'guide-dialog-body');
+    const footer = createTextElement('div', 'guide-dialog-footer');
+    footer.append(createTextElement('span', '', '关闭卡片，继续当前页面'));
+    const print = createTextElement('button', 'text-button', '打印此卡片');
+    print.type = 'button'; print.addEventListener('click', () => window.print()); footer.append(print);
+    dialog.append(header, viewport, footer);
+    document.body.append(dialog);
+    const panels = new Map();
+    let opener = null, active = null, trail = [], controller = null, revision = 0;
+    function announceChange() { document.dispatchEvent(new Event('guide-panel-change')); }
+    function cleanup() {
+      revision += 1; controller?.abort();
+      document.documentElement.classList.remove('guide-dialog-open');
+      viewport.replaceChildren();
+      active = null; trail = [];
+      announceChange();
+      opener?.focus({ preventScroll: true });
+    }
+    function dismiss() { dialog.close(); cleanup(); }
+    close.addEventListener('click', dismiss);
+    let backdropPress = false;
+    dialog.addEventListener('pointerdown', event => { backdropPress = event.target === dialog; });
+    dialog.addEventListener('click', event => { if (event.target === dialog && backdropPress) dismiss(); });
+    dialog.addEventListener('close', () => {
+      // A queued native close event must not clear a newly reopened card.
+      if (!dialog.open && active) cleanup();
+    });
+    dialog.addEventListener('cancel', event => {
+      // An open filter handles its own Escape before the dialog closes.
+      event.preventDefault();
+      if (!dialog.querySelector('.filter-select-menu[data-open="true"]')) dismiss();
+    });
+    back.addEventListener('click', () => { const previous = trail.pop(); if (previous) show(previous, false); });
+    async function show(destination, remember = true) {
+      const request = ++revision;
+      controller?.abort(); controller = new AbortController();
+      const requestController = controller;
+      if (remember && active && active.key !== destination.key) trail.push(active);
+      active = destination;
+      back.hidden = trail.length === 0;
+      title.textContent = destination.title;
+      viewport.replaceChildren(createTextElement('p', 'guide-loading', '正在打开卡片…'));
+      viewport.setAttribute('aria-busy', 'true');
+      if (!dialog.open) {
+        document.documentElement.classList.add('guide-dialog-open');
+        dialog.showModal();
+      }
+      close.focus({ preventScroll: true });
+      announceChange();
+      let timeout;
+      try {
+        let panel = panels.get(destination.key);
+        if (!panel) {
+          panel = createTextElement('div', 'guide-panel');
+          panel.dataset.page = destination.page || 'home';
+          if (destination.template) {
+            panel.append(destination.template.content.cloneNode(true));
+          } else {
+            timeout = window.setTimeout(() => requestController.abort(), 10_000);
+            const response = await fetch(destination.path, { signal: requestController.signal });
+            if (!response.ok) throw new Error('Unable to load guide');
+            const parsed = new DOMParser().parseFromString(await response.text(), 'text/html');
+            const source = parsed.querySelector('main');
+            if (!source || !parsed.documentElement.matches('[data-product="hainanu-2027-kaoyan-guide"]')) throw new Error('Invalid guide');
+            panel.append(...Array.from(source.childNodes).map(node => document.importNode(node, true)));
+          }
+          if (request !== revision || !dialog.open) return;
+          // Original page IDs are retained for source links; only one fetched panel is mounted.
+          panel.querySelectorAll('script').forEach(node => node.remove());
+          const updateList = panel.querySelector('[data-update-page-size]');
+          if (updateList) updateList.dataset.updatePageSize = '4';
+          viewport.replaceChildren(panel);
+          initReadingGroups(panel, destination.page);
+          initPage(panel);
+          panels.set(destination.key, panel);
+        } else {
+          viewport.replaceChildren(panel);
+        }
+        panel.guideReveal?.(destination.hash);
+        viewport.scrollTop = 0;
+        viewport.removeAttribute('aria-busy');
+        announceChange();
+      } catch {
+        if (request !== revision || !dialog.open) return;
+        const error = createTextElement('div', 'guide-error');
+        error.setAttribute('role', 'status');
+        error.append(createTextElement('h3', '', '这张卡片暂时未能打开'),
+          createTextElement('p', '', '请检查连接后重试，当前页面仍会保留。'));
+        const retry = createTextElement('button', 'button button-primary', '重新加载');
+        retry.type = 'button'; retry.addEventListener('click', () => show(destination, false)); error.append(retry);
+        if (destination.path) {
+          const link = createTextElement('a', 'text-link', '打开完整页面');
+          link.href = destination.path + (destination.hash || ''); link.dataset.guideBypass = ''; error.append(link);
+        }
+        viewport.replaceChildren(error); viewport.removeAttribute('aria-busy');
+      } finally { window.clearTimeout(timeout); }
+    }
+    document.addEventListener('click', event => {
+      if (event.defaultPrevented || event.button > 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+      const local = event.target.closest('[data-guide-local]');
+      if (local) {
+        const template = document.getElementById(local.dataset.guideLocal);
+        if (!template) return;
+        event.preventDefault(); if (!dialog.open) opener = local;
+        show({ key: template.id, title: template.dataset.title, template }); return;
+      }
+      const link = event.target.closest('a[href]');
+      if (!link || link.target || link.hasAttribute('download') || link.hasAttribute('data-guide-bypass')) return;
+      const url = new URL(link.href, window.location.href);
+      if (url.origin !== window.location.origin) return;
+      const page = url.pathname.split('/').pop().replace(/\.html$/, '');
+      if (!pageNames[page]) {
+        if (url.pathname === window.location.pathname && url.hash) main.guideReveal(url.hash);
+        return;
+      }
+      if (!dialog.open && page === document.body.dataset.page) {
+        main.guideReveal(url.hash); return;
+      }
+      event.preventDefault();
+      if (!dialog.open) opener = link;
+      show({ key: page, page, path: `/${page}.html`, hash: url.hash, title: pageNames[page] });
+    });
+    document.querySelectorAll('a[href]').forEach(link => {
+      const url = new URL(link.href, window.location.href);
+      const page = url.pathname.split('/').pop().replace(/\.html$/, '');
+      if (url.origin === window.location.origin && pageNames[page] && page !== document.body.dataset.page) link.setAttribute('aria-haspopup', 'dialog');
+    });
+  }
+
+  function initPage(root = document) {
+    const legacyDestination = root === document && getLegacyPageDestination(window.location.pathname, window.location.hash);
     if (legacyDestination) {
       window.location.replace(legacyDestination);
       return;
     }
-    initSiteNavigation();
-    const timelineElements = Array.from(document.querySelectorAll('[data-milestone-id]'));
+    if (root === document) initSiteNavigation();
+    const timelineElements = Array.from(root.querySelectorAll('[data-milestone-id]'));
     function renderCurrentStage(checks) {
       const todayString = getLocalDateString(new Date());
       const state = getTimelineState(milestones, todayString);
@@ -1035,10 +1420,10 @@
         else element.removeAttribute('aria-current');
       });
 
-      const stageName = document.querySelector('#current-stage-name');
-      const stageDetail = document.querySelector('#current-stage-detail');
-      const nextName = document.querySelector('#next-stage-name');
-      const nextDays = document.querySelector('#next-stage-days');
+      const stageName = root.querySelector('#current-stage-name');
+      const stageDetail = root.querySelector('#current-stage-detail');
+      const nextName = root.querySelector('#next-stage-name');
+      const nextDays = root.querySelector('#next-stage-days');
 
       if (stageName) stageName.textContent = activeMilestones.map((milestone) => milestone.label).join(' / ') || '等待下一节点';
       if (stageDetail) {
@@ -1054,25 +1439,34 @@
           : '—';
       }
     }
-    const checkboxes = Array.from(document.querySelectorAll('.task-check[data-check-id]'));
-    const skipButtons = Array.from(document.querySelectorAll('[data-skip-check]'));
+    const checkboxes = Array.from(root.querySelectorAll('.task-check[data-check-id]'));
+    const skipButtons = Array.from(root.querySelectorAll('[data-skip-check]'));
     let progressStorage = null;
     let checklistState = {};
     try {
-      progressStorage = window.localStorage;
-      checklistState = readChecks(progressStorage, STORAGE_KEY, CHECKLIST_IDS);
+      if (sessionProgressOnly) {
+        checklistState = mergeChecklistState(sessionChecklistState, {});
+        showSessionStorageWarning(root);
+      } else {
+        progressStorage = window.localStorage;
+        checklistState = readChecks(progressStorage, STORAGE_KEY, CHECKLIST_IDS);
+      }
     } catch {
       // Some restricted or file origins block access at the property getter.
       progressStorage = null;
-      showSessionStorageWarning();
+      sessionProgressOnly = true;
+      checklistState = mergeChecklistState(sessionChecklistState, {});
+      showSessionStorageWarning(root);
     }
 
     function renderProgress() {
+      sessionChecklistState = checklistState;
+      if (sessionProgressOnly) showSessionStorageWarning(root);
       const { completed, total, percent } = countChecklistProgress(checklistState);
       renderCurrentStage(checklistState);
-      const bar = document.querySelector('#progress-bar');
-      const text = document.querySelector('#progress-text');
-      const count = document.querySelector('#progress-count');
+      const bar = root.querySelector('#progress-bar');
+      const text = root.querySelector('#progress-text');
+      const count = root.querySelector('#progress-count');
 
       if (bar) {
         bar.style.width = `${percent}%`;
@@ -1098,6 +1492,7 @@
     function persistChecks(pageValues = Object.fromEntries(
         checkboxes.map((checkbox) => [checkbox.dataset.checkId, checkbox.checked])
       )) {
+      if (sessionProgressOnly) progressStorage = null;
       if (!progressStorage) {
         checklistState = mergeChecklistState(checklistState, pageValues);
       } else {
@@ -1110,11 +1505,15 @@
         } catch {
           checklistState = mergeChecklistState(checklistState, pageValues);
           progressStorage = null;
+          sessionProgressOnly = true;
           // Storage may be disabled in private or hardened browser modes.
-          showSessionStorageWarning();
+          showSessionStorageWarning(root);
         }
       }
       renderProgress();
+      if (typeof document.dispatchEvent === 'function') {
+        document.dispatchEvent(new CustomEvent('guide-progress-change', { detail: checklistState }));
+      }
     }
 
     checkboxes.forEach((checkbox) => checkbox.addEventListener('change', () => persistChecks({
@@ -1125,14 +1524,23 @@
       if (optionalChecklistIds.has(id)) persistChecks({ [id]: checklistState[id] === 'na' ? false : 'na' });
     }));
     renderProgress();
+    document.addEventListener('guide-progress-change', (event) => {
+      checklistState = mergeChecklistState(event.detail, {});
+      renderProgress();
+    });
     function refreshChecklist() {
+      if (sessionProgressOnly) {
+        progressStorage = null;
+        checklistState = mergeChecklistState(sessionChecklistState, {});
+      }
       if (progressStorage) {
         try {
           checklistState = readChecks(progressStorage, STORAGE_KEY, CHECKLIST_IDS);
         } catch {
           // Keep the last usable state when storage becomes inaccessible.
           progressStorage = null;
-          showSessionStorageWarning();
+          sessionProgressOnly = true;
+          showSessionStorageWarning(root);
         }
       }
       renderProgress();
@@ -1177,7 +1585,7 @@
       });
     }
 
-    const resetButton = document.querySelector('#reset-progress');
+    const resetButton = root.querySelector('#reset-progress');
     resetButton?.addEventListener('click', () => {
       const resetAll = resetButton.dataset.resetScope === 'all';
       const confirmation = resetAll
@@ -1192,7 +1600,7 @@
       persistChecks();
     });
 
-    const filterButtons = Array.from(document.querySelectorAll('[data-filter]'));
+    const filterButtons = Array.from(root.querySelectorAll('[data-filter]'));
     const categoryItems = timelineElements.map((element) => ({
       id: element.dataset.milestoneId,
       category: element.dataset.category,
@@ -1217,12 +1625,12 @@
       });
     });
 
-    document.querySelectorAll('[data-print]').forEach((button) => {
+    root.querySelectorAll('[data-print]').forEach((button) => {
       button.addEventListener('click', () => window.print());
     });
 
-    const navLinks = Array.from(document.querySelectorAll('.page-toc a[href^="#"]'));
-    if ('IntersectionObserver' in window) {
+    const navLinks = Array.from(root.querySelectorAll('.page-toc a[href^="#"]'));
+    if (root === document && 'IntersectionObserver' in window) {
       const observer = new IntersectionObserver((entries) => {
         entries.forEach((entry) => {
           if (!entry.isIntersecting) return;
@@ -1234,10 +1642,11 @@
           });
         });
       }, { rootMargin: '-20% 0px -68% 0px' });
-      document.querySelectorAll('main section[id]').forEach((section) => observer.observe(section));
+      root.querySelectorAll('main section[id]').forEach((section) => observer.observe(section));
     }
 
-    initOfficialUpdates();
+    initOfficialUpdates(root);
+    if (root === document) initGuideCards();
   }
 
   if (typeof module !== 'undefined' && module.exports) {
@@ -1264,7 +1673,7 @@
 
   if (typeof document !== 'undefined') {
     if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', initPage, { once: true });
+      document.addEventListener('DOMContentLoaded', () => initPage(), { once: true });
     } else {
       initPage();
     }

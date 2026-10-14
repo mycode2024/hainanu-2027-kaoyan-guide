@@ -38,7 +38,7 @@
       <div class="hero-copy">
         <p class="eyebrow"><span class="signal-dot" aria-hidden="true"></span>海南大学 · 计算机科学与技术学院</p>
         <h1>从现在，到上岸。<br><em>每个节点都不掉线。</em></h1>
-        <p class="hero-lead">面向 2027 年海南大学计算机类 / 408 考生的行动导航。先看当前阶段，再按需要进入专业、分数、备考或报名页面。</p>
+        <p class="hero-lead">面向 2027 年海南大学计算机类 / 408 考生的行动导航。先看当前阶段。专业、分数、备考与报名，点开卡片就能查看。</p>
         <div class="hero-actions">
           <a class="button button-primary" href="/timeline.html">查看全年时间轴</a>
           <a class="button button-secondary" href="/materials.html">打开材料清单</a>
@@ -67,6 +67,11 @@
       </aside>
     </div>
 
+    <div class="home-reminders">
+      <a href="/application.html#review-deadlines"><span class="reminder-dot" aria-hidden="true"></span><strong>报名与材料审核期限</strong><span>查看适用条件</span><b aria-hidden="true">↗</b></a>
+      <a href="/application.html" data-guide-local="before-apply"><strong>报名前，先看清这三件事</strong><span>打开提醒卡片</span><b aria-hidden="true">＋</b></a>
+    </div>
+    <template id="before-apply" data-title="报名前必读">
     <div class="consultation-note" role="note"><strong>2027 报名与审核 · 两项期限请分开核对</strong><p>报考海南大学且学历（学籍）网上校验未通过：按<a href="https://gs.hainanu.edu.cn/info/1024/9032.htm" target="_blank" rel="noopener noreferrer">2027 招生简章</a>，须在 <time datetime="2026-10-20">2026 年 10 月 20 日前</time>将证明发送至 hdyzb@hainanu.edu.cn。仅选择海甸校区 4603 报考点的考生：集中审核为 10 月 26—31 日，补交须在 <time datetime="2026-10-31T12:00:00+08:00">10 月 31 日 12:00 前</time>完成；其他报考点另查公告。</p><a href="/application.html#review-deadlines">查看适用条件与官方原文 →</a></div>
     <div class="truth-banner" role="note">
       <strong>报名前，先看清这三件事</strong>
@@ -76,13 +81,14 @@
         <p><b>03 / 2027 专业目录已发布</b><a href="https://gs.hainanu.edu.cn/info/1024/9002.htm" target="_blank" rel="noopener noreferrer">9 月 29 日官方目录</a>第 8 页确认：081200、085404、085405 均考 408，拟招生 36 / 37 / 48 人（含推免），三个专业均不招收同等学力考生。已于 <time data-review-date="directory" datetime="2026-09-30">2026-09-30</time> 核对，详见<a href="/programs.html">专业选择</a>；2026 复试细则仍仅供参考。</p>
       </div>
     </div>
+    </template>
   </header>
 
   <main id="main-content" class="home-main">
     <section class="content-section home-intro" aria-labelledby="page-map-title">
       <div class="section-heading">
-        <div><p class="section-index">ROUTE MAP / 按需进入</p><h2 id="page-map-title">今天要处理什么，<br>从对应页面出发</h2></div>
-        <p>共 21 项任务，进度按适用项计算。预报名、报考点资格证明、专项材料可标记为“不适用”并随时恢复；记录仅保存在当前浏览器，换页后继续使用。</p>
+        <div><p class="section-index">YOUR GUIDE / 点开即看</p><h2 id="page-map-title">今天，想了解什么？</h2></div>
+        <a class="text-button" href="/updates.html" data-guide-local="latest-updates">最近三条动态 ↗</a>
       </div>
       <div class="page-map">
         <a class="page-map-card" href="/programs.html"><span>01</span><strong>专业选择</strong><p>对照三个专业的科目与培养方向。</p><em>3 项专业确认 →</em></a>
@@ -96,6 +102,7 @@
       </div>
     </section>
 
+<template id="latest-updates" data-title="最近三条官方动态">
     <section class="content-section updates-section compact-updates" id="updates" aria-labelledby="updates-title">
       <div class="section-heading">
         <div><p class="section-index">LIVE / 最新摘要</p><h2 id="updates-title">最近三条官方动态</h2></div>
@@ -120,6 +127,7 @@
       </div>
       <div class="section-action"><a class="button button-outline" href="/updates.html">查看完整官方动态</a></div>
     </section>
+</template>
   </main>
 
   <footer class="site-footer">
