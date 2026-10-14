@@ -4,6 +4,7 @@
   const DAY_MS = 86_400_000;
   const STORAGE_KEY = 'hainanu-2027-kaoyan-progress-v1';
   const LAST_SEEN_UPDATES_KEY = 'hainanu-2027-kaoyan-last-seen-v1';
+  const kCardExitAnimationMs = 170;
   let sessionChecklistState = {};
   let sessionProgressOnly = false;
   const CHECKLIST_IDS = Object.freeze([
@@ -1282,7 +1283,27 @@
       announceChange();
       opener?.focus({ preventScroll: true });
     }
-    function dismiss() { dialog.close(); cleanup(); }
+    let closeTimer = null;
+    function cancelPendingClose() {
+      if (closeTimer === null) return;
+      window.clearTimeout(closeTimer);
+      closeTimer = null;
+      dialog.classList.remove('guide-closing');
+    }
+    function dismiss() {
+      if (closeTimer !== null) return;
+      const reducedMotion = typeof window.matchMedia === 'function'
+        && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      if (reducedMotion || !dialog.open) { dialog.close(); cleanup(); return; }
+      dialog.classList.add('guide-closing');
+      closeTimer = window.setTimeout(() => {
+        closeTimer = null;
+        dialog.classList.remove('guide-closing');
+        // Same synchronous close+cleanup as the instant path, so focus and scroll restore right away.
+        dialog.close();
+        cleanup();
+      }, kCardExitAnimationMs);
+    }
     close.addEventListener('click', dismiss);
     let backdropPress = false;
     dialog.addEventListener('pointerdown', event => { backdropPress = event.target === dialog; });
@@ -1298,6 +1319,7 @@
     });
     back.addEventListener('click', () => { const previous = trail.pop(); if (previous) show(previous, false); });
     async function show(destination, remember = true) {
+      cancelPendingClose();
       const request = ++revision;
       controller?.abort(); controller = new AbortController();
       const requestController = controller;

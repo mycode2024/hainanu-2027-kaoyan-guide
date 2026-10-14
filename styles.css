@@ -1091,7 +1091,10 @@ main { min-width: 0; }
   body[data-page="home"] .site-footer p { max-width: 90ch; font-size: .72rem; line-height: 1.7; }
 
   .guide-dialog { width: min(1020px, calc(100vw - 64px)); max-width: none; height: min(820px, calc(100dvh - 72px)); max-height: none; margin: auto; padding: 0; overflow: hidden; border: 1px solid #d6e0d8; border-radius: 24px; background: #fbfaf5; color: var(--ink); box-shadow: 0 32px 100px #061e3b52; }
-  .guide-dialog[open] { display: flex; flex-direction: column; animation: card-appear .18s ease-out; }
+  .guide-dialog[open] { display: flex; flex-direction: column; animation: dialog-in .26s cubic-bezier(.16, 1, .3, 1) both; }
+  .guide-dialog[open]::backdrop { animation: backdrop-in .2s ease-out both; }
+  .guide-dialog.guide-closing { animation: dialog-out .17s ease-in both; pointer-events: none; }
+  .guide-dialog.guide-closing::backdrop { animation: backdrop-out .17s ease-in both; }
   .guide-dialog::backdrop { background: #132c3b88; backdrop-filter: blur(6px); }
   .guide-dialog-header { display: flex; justify-content: space-between; align-items: center; gap: 20px; flex-shrink: 0; padding: 22px 28px 20px; border-bottom: 1px solid #dce3dc; background: #f5f5ec; }
   .guide-dialog-heading { display: flex; align-items: center; gap: 16px; min-width: 0; }
@@ -1106,7 +1109,7 @@ main { min-width: 0; }
   .guide-dialog-footer .text-button { margin: 0; font-size: .74rem; }
   .guide-loading, .guide-error { margin: 60px auto; max-width: 420px; text-align: center; }
   .guide-error .text-link { display: block; margin-top: 18px; }
-  .guide-panel { --page-accent: #176b65; --page-tint: #eaf3ee; --page-dark: #123f42; --page-light: #bce7d7; min-width: 0; }
+  .guide-panel { --page-accent: #176b65; --page-tint: #eaf3ee; --page-dark: #123f42; --page-light: #bce7d7; min-width: 0; animation: panel-in .21s ease-out; }
   .guide-panel[data-page="scores"] { --page-accent: #365e96; --page-tint: #edf1f9; --page-dark: #213650; --page-light: #c4d9fa; }
   .guide-panel[data-page="preparation"] { --page-accent: #725180; --page-tint: #f3edf5; --page-dark: #41334b; --page-light: #e1cbe9; }
   .guide-panel[data-page="timeline"] { --page-accent: #856222; --page-tint: #f7f0df; --page-dark: #493e29; --page-light: #efdaa5; }
@@ -1135,6 +1138,7 @@ main { min-width: 0; }
   .reading-tabs button { flex: 1; min-width: max-content; padding: 10px 15px; border: 0; border-radius: 8px; background: transparent; color: #6a746c; font: inherit; font-size: .84rem; cursor: pointer; }
   .reading-tabs button[aria-selected="true"] { color: white; background: var(--page-accent); box-shadow: 0 2px 5px #123f4215; }
   .reading-pane { outline-offset: 4px; }
+  .reading-pane:not([hidden]) { animation: pane-in .18s ease-out; }
   .reading-pane > :first-child { margin-top: 0; }
   .reading-context { margin-top: 12px; font-size: .82rem; color: #6d776f; }
   .reading-context summary { width: fit-content; cursor: pointer; text-underline-offset: 4px; }
@@ -1157,6 +1161,7 @@ main { min-width: 0; }
   .timeline-launch strong { font-size: .94rem; line-height: 1.6; }
   .timeline-launch span { margin-top: auto; color: #917039; font-size: .72rem; }
   .timeline-detail { padding: 22px; border: 1px solid #dddacb; border-radius: 16px; background: #fffdf8; }
+  .timeline-detail:not([hidden]) { animation: pane-in .18s ease-out; }
   .timeline-detail > .text-button { margin: 0 0 24px; }
   .timeline-detail .timeline-date { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; text-align: left; margin-bottom: 18px; }
   .timeline-detail .timeline-body { padding: 0; }
@@ -1170,12 +1175,18 @@ main { min-width: 0; }
   .step-picker button[aria-pressed="true"] { color: white; background: var(--page-accent); border-color: var(--page-accent); }
   .step-reader { margin: 0; }
   .step-reader > li { padding: 22px; border: 1px solid #e2ddd0; border-radius: 14px; background: #fffdf8; }
+  .step-reader > li:not([hidden]) { animation: pane-in .18s ease-out; }
   .step-controls { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 20px; }
   .step-controls > span { color: #817668; font-size: .8rem; }
   .step-controls button { min-height: 40px; font-size: .8rem; }
   .step-controls button:disabled { opacity: .4; cursor: default; }
   .guide-panel [hidden], .guide-dialog [hidden], .timeline-compact [hidden], .reading-pane[hidden] { display: none !important; }
-  @keyframes card-appear { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes dialog-in { from { opacity: 0; transform: translateY(14px) scale(.965); } }
+  @keyframes dialog-out { to { opacity: 0; transform: translateY(8px) scale(.98); } }
+  @keyframes backdrop-in { from { opacity: 0; } }
+  @keyframes backdrop-out { to { opacity: 0; } }
+  @keyframes panel-in { from { opacity: 0; transform: translateY(6px); } }
+  @keyframes pane-in { from { opacity: 0; } }
 }
 @media screen and (max-width: 900px) {
   body[data-page="home"] .page-map { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -1233,7 +1244,13 @@ main { min-width: 0; }
   .guide-panel .consultation-note, .guide-panel .truth-banner { padding: 18px; }
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .guide-dialog[open], .guide-dialog.guide-closing, .guide-dialog[open]::backdrop, .guide-dialog.guide-closing::backdrop,
+  .guide-panel, .reading-pane:not([hidden]), .timeline-detail:not([hidden]), .step-reader > li:not([hidden]) { animation: none !important; }
+}
+
 @media print {
+  .guide-dialog[open], .guide-dialog.guide-closing { animation: none !important; }
   .guide-dialog:not([open]), .reading-tabs, .reading-context > summary, .timeline-launch, .timeline-detail > button, .home-reminders { display: none !important; }
   .reading-pane[hidden] { display: block !important; }
   .step-reader > li[hidden] { display: grid !important; }

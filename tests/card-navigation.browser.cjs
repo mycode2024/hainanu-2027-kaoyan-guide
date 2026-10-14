@@ -184,6 +184,37 @@ async function key(value) {
   await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: 2, y: 2, button: 'left', clickCount: 1 });
   await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: 2, y: 2, button: 'left', clickCount: 1 });
   await until(`!document.querySelector('.guide-dialog').open`);
+  // Card motion: the exit animation must delay the close, repeated dismisses
+  // during it are ignored, and reduced motion closes immediately.
+  await open('programs');
+  const motion = await evaluate(`new Promise(resolve => {
+    const dialog = document.querySelector('.guide-dialog');
+    document.querySelector('[data-guide-close]').click();
+    const samples = [];
+    const started = performance.now();
+    const tick = () => {
+      samples.push({ at: Math.round(performance.now() - started), open: dialog.open, closing: dialog.classList.contains('guide-closing') });
+      if (!dialog.open || performance.now() - started > 1200) return resolve(samples);
+      requestAnimationFrame(tick);
+    };
+    tick();
+  })`);
+  assert.equal(motion[0].open, true, 'the card must stay open while the exit animation runs');
+  assert.equal(motion[0].closing, true, 'the closing state must be applied immediately');
+  assert.equal(motion[motion.length - 1].open, false, 'the card must close after the exit animation');
+  assert.ok(motion[motion.length - 1].at >= 100, `the exit animation must delay the close (${motion[motion.length - 1].at}ms)`);
+  await open('programs');
+  await evaluate(`document.querySelector('[data-guide-close]').click(); document.querySelector('[data-guide-close]').click()`);
+  await key('Escape');
+  await until(`!document.querySelector('.guide-dialog').open`);
+  await open('scores');
+  await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
+  assert.deepEqual(await evaluate(`(() => {
+    const dialog = document.querySelector('.guide-dialog');
+    document.querySelector('[data-guide-close]').click();
+    return { open: dialog.open, closing: dialog.classList.contains('guide-closing') };
+  })()`), { open: false, closing: false }, 'reduced motion must close without the exit animation');
+  await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }] });
   await send('Page.navigate', { url: base + '/preparation.html' });
   await until(`document.readyState === 'complete' && location.pathname === '/preparation.html'`);
   await evaluate(`document.querySelector('.page-toc a[href="#risks"]').click(); document.querySelector('.page-toc a[href="#exam"]').click()`);
