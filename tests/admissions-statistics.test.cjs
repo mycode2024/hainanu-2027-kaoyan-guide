@@ -32,6 +32,12 @@ test('published score section clearly pairs the December 2025 exam with the 2026
   assert.match(section, /315\.68/);
   assert.match(section, /365\.33/);
   assert.match(section, /365\.22/);
+  assert.match(section, /254/);
+  assert.match(section, /32\s*\/\s*48/);
+  assert.match(section, /24 人/);
+  assert.match(section, /34 人/);
+  assert.match(section, /57 人/);
+  assert.doesNotMatch(section, /暂未核实/);
   assert.match(section, /CB936332381D12B6ACB9BBAB8EF_4E26C726_110B69\.pdf/);
 });
 

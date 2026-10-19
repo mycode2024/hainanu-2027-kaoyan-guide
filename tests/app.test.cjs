@@ -398,7 +398,7 @@ test('updates the stage and countdown across consecutive midnights without a not
     assert.equal(page.elements.nextDays.textContent, '1 天');
     assert.equal(preapply.getAttribute('aria-current'), null);
     page.advanceTime(12 * 60 * 60 * 1000);
-    assert.equal(page.elements.stageName.textContent, '网上预报名 / 材料核验与补交');
+    assert.equal(page.elements.stageName.textContent, '网上预报名 / 学历校验补证 / 材料核验与补交');
     assert.equal(page.elements.nextName.textContent, '全国网上报名');
     assert.equal(page.elements.nextDays.textContent, '6 天');
     assert.equal(preapply.getAttribute('aria-current'), 'step');
@@ -670,12 +670,16 @@ test('returns every overlapping active milestone in chronological order', () => 
 test('home countdown follows the published 2027 registration dates', async () => {
   for (const [today, active, next, days] of [
     ['2026-10-08', '等待下一节点', '网上预报名', '1 天'],
-    ['2026-10-09', '网上预报名 / 材料核验与补交', '全国网上报名', '6 天'],
-    ['2026-10-12', '网上预报名 / 材料核验与补交', '全国网上报名', '3 天'],
-    ['2026-10-13', '材料核验与补交', '全国网上报名', '2 天'],
-    ['2026-10-15', '全国网上报名 / 材料核验与补交', '下载准考证', '56 天'],
-    ['2026-10-24', '全国网上报名 / 材料核验与补交', '下载准考证', '47 天'],
-    ['2026-10-28', '材料核验与补交', '下载准考证', '43 天']
+    ['2026-10-09', '网上预报名 / 学历校验补证 / 材料核验与补交', '全国网上报名', '6 天'],
+    ['2026-10-12', '网上预报名 / 学历校验补证 / 材料核验与补交', '全国网上报名', '3 天'],
+    ['2026-10-13', '学历校验补证 / 材料核验与补交', '全国网上报名', '2 天'],
+    ['2026-10-15', '学历校验补证 / 全国网上报名 / 材料核验与补交', '4603 审核补交', '11 天'],
+    ['2026-10-20', '学历校验补证 / 全国网上报名 / 材料核验与补交', '4603 审核补交', '6 天'],
+    ['2026-10-21', '全国网上报名 / 材料核验与补交', '4603 审核补交', '5 天'],
+    ['2026-10-24', '全国网上报名 / 材料核验与补交', '4603 审核补交', '2 天'],
+    ['2026-10-25', '材料核验与补交', '4603 审核补交', '1 天'],
+    ['2026-10-28', '4603 审核补交 / 材料核验与补交', '下载准考证（预计）', '约 43 天'],
+    ['2026-11-01', '材料核验与补交', '下载准考证（预计）', '约 39 天']
   ]) {
     await withFakePage({ today, includeLiveConsole: false }, ({ elements }) => {
       assert.equal(elements.stageName.textContent, active, today);
@@ -690,9 +694,11 @@ test('keeps uncompleted material review visible after registration and clears it
   await withFakePage({ includeLiveConsole: false, today: '2026-10-25', checkboxes: [checkbox] }, async (page) => {
     assert.match(page.elements.stageName.textContent, /材料核验与补交/);
     assert.match(page.elements.stageDetail.textContent, /报考点/);
+    assert.equal(page.elements.nextName.textContent, '4603 审核补交');
     checkbox.checked = true;
     checkbox.dispatch('change');
     assert.doesNotMatch(page.elements.stageName.textContent, /材料核验与补交/);
+    assert.equal(page.elements.nextName.textContent, '下载准考证（预计）');
   });
 });
 

@@ -4,7 +4,7 @@
   const DAY_MS = 86_400_000;
   const STORAGE_KEY = 'hainanu-2027-kaoyan-progress-v1';
   const LAST_SEEN_UPDATES_KEY = 'hainanu-2027-kaoyan-last-seen-v1';
-  const kCardExitAnimationMs = 170;
+  const kCardExitAnimationMs = 220;
   let sessionChecklistState = {};
   let sessionProgressOnly = false;
   const CHECKLIST_IDS = Object.freeze([
@@ -22,19 +22,21 @@
     { id: 'directory', start: '2026-09-15', end: '2026-09-30', label: '招生目录与报考资格核对', action: '逐字段核对专业、院系、科目、备注与计划' },
     { id: 'consultation', start: '2026-09-26', end: '2026-09-29', label: '研招咨询活动', action: '进入研招网在线咨询，向招生单位核对专业限制、科目和报考要求' },
     { id: 'preapply', start: '2026-10-09', end: '2026-10-12', label: '网上预报名', action: '每日 9:00—22:00；按所在省安排填报并提交核验材料' },
+    { id: 'edu-verify', start: '2026-10-09', end: '2026-10-20', label: '学历校验补证', action: '学历（学籍）网上校验未通过者，10 月 20 日前发送证明至 hdyzb@hainanu.edu.cn', reviewScoped: true },
     { id: 'apply', start: '2026-10-15', end: '2026-10-24', label: '全国网上报名', action: '每日 9:00—22:00；填写信息、一并提交核验材料并完成缴费' },
+    { id: 'review-4603', start: '2026-10-26', end: '2026-10-31', label: '4603 审核补交', action: '海甸 4603 报考点 10 月 26—31 日集中审核，补交截至 10 月 31 日 12:00；其他报考点按当地公告执行', reviewScoped: true },
     // The 2027 process combines registration and confirmation. Local review and
     // supplementary-material deadlines are not a separate national date range.
     { id: 'confirm', start: null, end: null, label: '材料核验与补交', action: '报名时提交材料，补交时限按省级机构和报考点公告执行' },
-    { id: 'ticket', start: '2026-12-10', end: '2026-12-18', label: '下载准考证', action: '打印多份并完成考点路线踩点' },
+    { id: 'ticket', start: '2026-12-10', end: '2026-12-18', estimated: true, label: '下载准考证', action: '考前十天左右登录研招网下载打印多份，并完成考点路线踩点' },
     { id: 'exam', start: '2026-12-19', end: '2026-12-20', label: '全国硕士研究生初试', action: '按准考证时间参加政治、英语、数学与 408' },
-    { id: 'score', start: '2027-02-20', end: '2027-02-28', label: '初试成绩查询', action: '查分、保存成绩单并决定复试/调剂策略' },
-    { id: 'line', start: '2027-03-01', end: '2027-03-20', label: '国家线与复试名单', action: '核对 B 类国家线和学院复试要求' },
-    { id: 'retest', start: '2027-03-21', end: '2027-04-15', label: '复试', action: '完成资格审查、专业考核与面试' },
-    { id: 'adjust', start: '2027-04-01', end: '2027-04-30', label: '调剂窗口', action: '需要时通过研招网调剂系统填报并确认通知' },
-    { id: 'admit', start: '2027-04-15', end: '2027-05-15', label: '拟录取公示', action: '确认拟录取状态并留意体检、政审要求' },
-    { id: 'archive', start: '2027-05-01', end: '2027-07-31', label: '调档与通知书', action: '通过档案保管单位寄送材料并确认通知书地址' },
-    { id: 'enrol', start: '2027-09-01', end: '2027-09-15', label: '报到入学', action: '按录取通知完成报到与资格复核' }
+    { id: 'score', start: '2027-02-20', end: '2027-02-28', estimated: true, label: '初试成绩查询', action: '查分、保存成绩单并决定复试/调剂策略' },
+    { id: 'line', start: '2027-03-01', end: '2027-03-20', estimated: true, label: '国家线与复试名单', action: '核对 B 类国家线和学院复试要求' },
+    { id: 'retest', start: '2027-03-21', end: '2027-04-15', estimated: true, label: '复试', action: '完成资格审查、专业考核与面试' },
+    { id: 'adjust', start: '2027-04-01', end: '2027-04-30', estimated: true, label: '调剂窗口', action: '需要时通过研招网调剂系统填报并确认通知' },
+    { id: 'admit', start: '2027-04-15', end: '2027-05-15', estimated: true, label: '拟录取公示', action: '确认拟录取状态并留意体检、政审要求' },
+    { id: 'archive', start: '2027-05-01', end: '2027-07-31', estimated: true, label: '调档与通知书', action: '通过档案保管单位寄送材料并确认通知书地址' },
+    { id: 'enrol', start: '2027-09-01', end: '2027-09-15', estimated: true, label: '报到入学', action: '按录取通知完成报到与资格复核' }
   ];
 
   function toUtcDay(value) {
@@ -477,8 +479,11 @@
         rows.forEach((row, index) => row.setAttribute('aria-selected', String(index === select.selectedIndex)));
         renderActive();
       }
+      let frame = 0;
       function close() {
         open = false;
+        if (frame && typeof window.cancelAnimationFrame === 'function') window.cancelAnimationFrame(frame);
+        frame = 0;
         root.dataset.open = menu.dataset.open = 'false';
         trigger.setAttribute('aria-expanded', 'false');
         trigger.removeAttribute('aria-activedescendant');
@@ -499,22 +504,53 @@
         const above = rect.top - 16;
         const upward = below < desired && above > below;
         const width = Math.min(rect.width, window.innerWidth - 24);
-        menu.style.width = `${width}px`;
-        menu.style.left = `${Math.max(12, Math.min(rect.left, window.innerWidth - width - 12))}px`;
-        menu.style.maxHeight = `${Math.min(desired, Math.max(0, upward ? above : below))}px`;
-        menu.style.top = `${upward ? rect.top - menu.offsetHeight - 8 : rect.bottom + 8}px`;
+        const left = Math.max(12, Math.min(rect.left, window.innerWidth - width - 12));
+        const maxHeight = Math.min(desired, Math.max(0, upward ? above : below));
+        const dialog = scope !== document ? scope.closest('dialog') : null;
+        const transformed = Boolean(dialog && typeof window.getComputedStyle === 'function' && window.getComputedStyle(dialog).transform !== 'none');
+        const dialogRect = transformed ? dialog.getBoundingClientRect() : null;
+        const scaleX = transformed && dialog.offsetWidth ? dialogRect.width / dialog.offsetWidth : 1;
+        const scaleY = transformed && dialog.offsetHeight ? dialogRect.height / dialog.offsetHeight : 1;
+        const originX = transformed ? dialogRect.left + (dialog.clientLeft || 0) * scaleX : 0;
+        const originY = transformed ? dialogRect.top + (dialog.clientTop || 0) * scaleY : 0;
+        menu.style.width = `${width / scaleX}px`;
+        menu.style.left = `${(left - originX) / scaleX}px`;
+        menu.style.maxHeight = `${maxHeight / scaleY}px`;
+        const top = upward ? rect.top - menu.offsetHeight * scaleY - 8 : rect.bottom + 8;
+        menu.style.top = `${(top - originY) / scaleY}px`;
         menu.dataset.direction = upward ? 'up' : 'down';
+        return transformed;
+      }
+      function reposition() {
+        if (!open) return false;
+        const rect = trigger.getBoundingClientRect();
+        const scrollBox = scope !== document ? scope.closest('.guide-dialog-body') : null;
+        const bounds = scrollBox ? scrollBox.getBoundingClientRect() : { top: 0, bottom: window.innerHeight };
+        if (rect.bottom <= Math.max(0, bounds.top) || rect.top >= Math.min(window.innerHeight, bounds.bottom)) {
+          close();
+          return false;
+        }
+        return positionMenu();
+      }
+      function trackTransform() {
+        frame = 0;
+        if (reposition() && typeof window.requestAnimationFrame === 'function') {
+          frame = window.requestAnimationFrame(trackTransform);
+        }
       }
       function expand() {
         widgets.forEach((widget) => widget.close());
         sync();
-        positionMenu();
+        const transformed = positionMenu();
         open = true;
         root.dataset.open = menu.dataset.open = 'true';
         trigger.setAttribute('aria-expanded', 'true');
         menu.setAttribute('aria-hidden', 'false');
         renderActive();
         revealActive();
+        if (transformed && !frame && typeof window.requestAnimationFrame === 'function') {
+          frame = window.requestAnimationFrame(trackTransform);
+        }
       }
       function commit() {
         const changed = select.value !== options[activeIndex].value;
@@ -552,12 +588,7 @@
         }
       });
       select.addEventListener('change', sync);
-      widgets.push({ root, menu, close, reposition() {
-        if (!open) return;
-        const rect = trigger.getBoundingClientRect();
-        if (rect.bottom <= 0 || rect.top >= window.innerHeight) close();
-        else positionMenu();
-      } });
+      widgets.push({ root, menu, close, reposition });
       sync();
     });
     if (!widgets.length) return;
@@ -566,14 +597,24 @@
     });
     document.addEventListener('pointerdown', dismissOutside);
     document.addEventListener('focusin', dismissOutside);
+    document.addEventListener('guide-panel-change', () => widgets.forEach((widget) => widget.close()));
     window.addEventListener('resize', () => widgets.forEach((widget) => widget.close()));
     document.addEventListener('scroll', (event) => {
       if (!widgets.some((widget) => widget.menu.contains(event.target))) widgets.forEach((widget) => widget.reposition());
     }, true);
+    // A card's entrance transform temporarily changes the fixed menus' coordinate space.
+    document.addEventListener('animationend', (event) => {
+      if (scope !== document && event.target.contains(scope)) widgets.forEach((widget) => widget.reposition());
+    });
   }
 
   function initOfficialUpdates(root = document) {
-    const isInactive = () => document.visibilityState === 'hidden' || (root !== document && (!root.isConnected || !root.closest('dialog')?.open));
+    const isInactive = () => {
+      if (document.visibilityState === 'hidden') return true;
+      if (root === document) return false;
+      const dialog = root.closest('dialog');
+      return !root.isConnected || !dialog?.open || dialog.classList.contains('guide-closing');
+    };
     const isCloud = document.body?.dataset?.hosting === 'vercel';
     const consoleElement = root.querySelector('#live-updates-console');
     const refreshButton = root.querySelector('#refresh-official-updates');
@@ -1020,6 +1061,60 @@
     return destinations[`${page}${hash}`] || null;
   }
 
+  // Keep content changes immediate while the surrounding layout catches up.
+  function createContentTransition(container) {
+    let animation = null;
+    let targetHeight = 0;
+    const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)');
+    // CSS pixels exclude the dialog's entrance scale, unlike a bounding rect.
+    const height = () => container.getClientRects().length ? parseFloat(window.getComputedStyle(container).height) || 0 : 0;
+    const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(() => {
+      if (!animation) return;
+      const before = height();
+      // Read the new natural height without resetting the animation's clock.
+      // Nested steps and expanded notes can change it during a tab transition.
+      const effect = animation.effect;
+      const frames = effect.getKeyframes();
+      effect.setKeyframes([]);
+      const after = height();
+      effect.setKeyframes(frames);
+      if (Math.abs(after - targetHeight) >= 1) resize(before, after);
+    }) : null;
+    function resize(before, after) {
+      if (animation) { animation.onfinish = null; animation.cancel(); }
+      targetHeight = after;
+      animation = container.animate([{ height: `${before}px` }, { height: `${after}px` }], {
+        duration: 280, easing: 'cubic-bezier(.22, 1, .36, 1)'
+      });
+      container.classList.add('content-resizing');
+      animation.onfinish = finish;
+    }
+    function finish() {
+      const previous = animation;
+      animation = null;
+      observer?.disconnect();
+      if (previous) { previous.onfinish = null; previous.cancel(); }
+      container.classList.remove('content-resizing');
+    }
+    window.addEventListener('beforeprint', finish);
+    window.addEventListener('resize', finish);
+    reducedMotion?.addEventListener?.('change', finish);
+    document.addEventListener('guide-panel-change', () => { if (!container.isConnected) finish(); });
+    return (update, direction = 1, enabled = true) => {
+      // Measure before cancelling so an interrupted transition never snaps back.
+      const before = height();
+      finish();
+      container.dataset.motionDirection = direction < 0 ? 'backward' : 'forward';
+      update();
+      if (!enabled || !container.animate || reducedMotion?.matches ||
+          window.matchMedia?.('print').matches || !container.isConnected || before === 0) return;
+      const after = height();
+      if (after === 0 || Math.abs(after - before) < 1) return;
+      resize(before, after);
+      Array.from(container.children).forEach(child => observer?.observe(child));
+    };
+  }
+
   // Group existing source content, so the full-page and card views stay in sync.
   function initReadingGroups(root, page) {
     const configurations = {
@@ -1081,12 +1176,19 @@
         panes.append(pane);
         return button;
       });
+      const transition = createContentTransition(panes);
+      let currentIndex = -1;
       activate = (index, focus = false) => {
-        groups.forEach((group, i) => {
-          group.pane.hidden = i !== index;
-          buttons[i].setAttribute('aria-selected', String(i === index));
-          buttons[i].tabIndex = i === index ? 0 : -1;
-        });
+        if (index !== currentIndex) {
+          transition(() => {
+            groups.forEach((group, i) => {
+              group.pane.hidden = i !== index;
+              buttons[i].setAttribute('aria-selected', String(i === index));
+              buttons[i].tabIndex = i === index ? 0 : -1;
+            });
+          }, index - currentIndex, currentIndex >= 0);
+          currentIndex = index;
+        }
         if (focus) buttons[index].focus({ preventScroll: true });
       };
       buttons.forEach((button, index) => {
@@ -1112,7 +1214,7 @@
     initTimelineCards(root);
     initApplicationSteps(root);
     root.guideReveal = hash => {
-      if (!hash) return;
+      if (!hash) { root.resetTimeline?.(); return; }
       let id;
       try { id = decodeURIComponent(hash.replace(/^#/, '')); } catch { return; }
       const target = Array.from(root.querySelectorAll('[id]')).find(node => node.id === id);
@@ -1120,7 +1222,7 @@
       let index = groups.findIndex(group => group.pane.contains(target));
       if (index < 0 && target.tagName === 'SECTION') index = groups.findIndex(group => group.sectionIds.has(id));
       if (index >= 0) activate(index);
-      if (id === 'timeline' && !root.querySelector('.timeline-detail')?.hidden) root.querySelector('[data-timeline-back]')?.click();
+      if (id === 'timeline') root.resetTimeline?.();
       for (let node = target.parentElement; node && node !== root; node = node.parentElement) {
         if (node.tagName === 'DETAILS') node.open = true;
       }
@@ -1130,6 +1232,7 @@
   function initTimelineCards(root) {
     const list = root.querySelector('.timeline-list');
     if (!list) return;
+    const transition = createContentTransition(list.parentElement);
     list.classList.add('timeline-compact');
     const toolbar = root.querySelector('.timeline-toolbar');
     const detail = createTextElement('div', 'timeline-detail');
@@ -1142,6 +1245,14 @@
     list.after(detail);
     let selected = null;
     let printState = null;
+    root.resetTimeline = () => {
+      if (!selected) return;
+      selected.item.append(selected.body);
+      detail.hidden = true;
+      list.hidden = false;
+      if (toolbar) toolbar.hidden = false;
+      selected = null;
+    };
     window.addEventListener('beforeprint', () => {
       if (printState || !root.isConnected) return;
       printState = { hidden: Array.from(list.children).filter(item => item.hidden) };
@@ -1164,10 +1275,12 @@
     });
     back.addEventListener('click', () => {
       if (!selected) return;
-      selected.item.append(selected.body);
-      detail.hidden = true;
-      list.hidden = false;
-      if (toolbar) toolbar.hidden = false;
+      transition(() => {
+        selected.item.append(selected.body);
+        detail.hidden = true;
+        list.hidden = false;
+        if (toolbar) toolbar.hidden = false;
+      }, -1);
       selected.button.focus({ preventScroll: true });
       selected = null;
     });
@@ -1180,10 +1293,12 @@
       item.append(button);
       button.addEventListener('click', () => {
         selected = { item, body, button };
-        content.replaceChildren(item.querySelector('.timeline-date').cloneNode(true), body);
-        list.hidden = true;
-        if (toolbar) toolbar.hidden = true;
-        detail.hidden = false;
+        transition(() => {
+          content.replaceChildren(item.querySelector('.timeline-date').cloneNode(true), body);
+          list.hidden = true;
+          if (toolbar) toolbar.hidden = true;
+          detail.hidden = false;
+        });
         back.focus({ preventScroll: true });
       });
     });
@@ -1192,6 +1307,7 @@
   function initApplicationSteps(root) {
     const list = root.querySelector('.apply-steps');
     if (!list) return;
+    const transition = createContentTransition(list);
     const steps = Array.from(list.children);
     const picker = createTextElement('div', 'step-picker');
     picker.setAttribute('role', 'group');
@@ -1203,7 +1319,7 @@
     status.setAttribute('aria-live', 'polite');
     previous.type = next.type = 'button';
     controls.append(previous, status, next);
-    let current = 0;
+    let current = -1;
     const buttons = steps.map((step, index) => {
       const button = createTextElement('button', '', String(index + 1).padStart(2, '0'));
       button.type = 'button';
@@ -1213,11 +1329,14 @@
       return button;
     });
     function select(index) {
+      if (index === current) return;
+      transition(() => {
+        steps.forEach((step, i) => {
+          step.hidden = i !== index;
+          buttons[i].setAttribute('aria-pressed', String(i === index));
+        });
+      }, index - current, current >= 0);
       current = index;
-      steps.forEach((step, i) => {
-        step.hidden = i !== index;
-        buttons[i].setAttribute('aria-pressed', String(i === index));
-      });
       status.textContent = `${index + 1} / ${steps.length}`;
       previous.disabled = index === 0;
       next.disabled = index === steps.length - 1;
@@ -1242,14 +1361,16 @@
     initReadingGroups(main, document.body.dataset.page);
     main.guideReveal(window.location.hash);
     window.addEventListener('hashchange', () => main.guideReveal(window.location.hash));
-    let closedPrintDetails = [];
+    let closedPrintDetails = null;
     window.addEventListener('beforeprint', () => {
+      if (closedPrintDetails) return;
       closedPrintDetails = Array.from(document.querySelectorAll('details:not([open])'));
       closedPrintDetails.forEach(details => { details.open = true; });
     });
     window.addEventListener('afterprint', () => {
+      if (!closedPrintDetails) return;
       closedPrintDetails.forEach(details => { details.open = false; });
-      closedPrintDetails = [];
+      closedPrintDetails = null;
     });
     document.body.classList.add('guide-cards-ready');
     const dialog = createTextElement('dialog', 'guide-dialog');
@@ -1277,6 +1398,11 @@
     function announceChange() { document.dispatchEvent(new Event('guide-panel-change')); }
     function cleanup() {
       revision += 1; controller?.abort();
+      ['enter', 'exit'].forEach(phase => {
+        dialog.style.removeProperty(`--dialog-${phase}-opacity`);
+        dialog.style.removeProperty(`--dialog-${phase}-transform`);
+        dialog.style.removeProperty(`--backdrop-${phase}-opacity`);
+      });
       document.documentElement.classList.remove('guide-dialog-open');
       viewport.replaceChildren();
       active = null; trail = [];
@@ -1286,6 +1412,10 @@
     let closeTimer = null;
     function cancelPendingClose() {
       if (closeTimer === null) return;
+      const style = window.getComputedStyle(dialog);
+      dialog.style.setProperty('--dialog-enter-opacity', style.opacity);
+      dialog.style.setProperty('--dialog-enter-transform', style.transform);
+      dialog.style.setProperty('--backdrop-enter-opacity', window.getComputedStyle(dialog, '::backdrop').opacity);
       window.clearTimeout(closeTimer);
       closeTimer = null;
       dialog.classList.remove('guide-closing');
@@ -1295,7 +1425,12 @@
       const reducedMotion = typeof window.matchMedia === 'function'
         && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
       if (reducedMotion || !dialog.open) { dialog.close(); cleanup(); return; }
+      const style = window.getComputedStyle(dialog);
+      dialog.style.setProperty('--dialog-exit-opacity', style.opacity);
+      dialog.style.setProperty('--dialog-exit-transform', style.transform);
+      dialog.style.setProperty('--backdrop-exit-opacity', window.getComputedStyle(dialog, '::backdrop').opacity);
       dialog.classList.add('guide-closing');
+      announceChange();
       closeTimer = window.setTimeout(() => {
         closeTimer = null;
         dialog.classList.remove('guide-closing');
@@ -1425,13 +1560,17 @@
     const timelineElements = Array.from(root.querySelectorAll('[data-milestone-id]'));
     function renderCurrentStage(checks) {
       const todayString = getLocalDateString(new Date());
-      const state = getTimelineState(milestones, todayString);
+      const reviewCompleted = checks['stage-confirm'] === true;
+      const scheduledMilestones = reviewCompleted
+        ? milestones.filter((milestone) => !milestone.reviewScoped)
+        : milestones;
+      const state = getTimelineState(scheduledMilestones, todayString);
       const activeMilestones = state.activeIds
         .map((id) => milestones.find((milestone) => milestone.id === id))
         .filter(Boolean);
       // An undated local review deadline must not disappear from the task view.
       // This reminder does not extend any official submission deadline.
-      const reviewPending = todayString >= '2026-10-09' && checks['stage-confirm'] !== true;
+      const reviewPending = todayString >= '2026-10-09' && !reviewCompleted;
       if (reviewPending) activeMilestones.push(milestones.find(item => item.id === 'confirm'));
       const nextMilestone = milestones.find((milestone) => milestone.id === state.nextId);
 
@@ -1454,10 +1593,14 @@
           : '查看时间轴确认最近的官方节点';
         if (reviewPending) stageDetail.textContent += '；审核通过后在时间轴勾选完成，补交不得超过报考点公布的期限';
       }
-      if (nextName) nextName.textContent = nextMilestone?.label || '本周期已无后续节点';
+      if (nextName) {
+        nextName.textContent = nextMilestone
+          ? `${nextMilestone.label}${nextMilestone.estimated ? '（预计）' : ''}`
+          : '本周期已无后续节点';
+      }
       if (nextDays) {
         nextDays.textContent = Number.isFinite(state.daysToNext)
-          ? `${state.daysToNext} 天`
+          ? `${nextMilestone?.estimated ? '约 ' : ''}${state.daysToNext} 天`
           : '—';
       }
     }

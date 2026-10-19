@@ -24,7 +24,7 @@ with fitz.open(source) as document:
 assert len(records) == 94, f'Expected 94 college rows, got {len(records)}'
 assert [r['sourceRow'] for r in records] == list(range(1458, 1552))
 assert sorted(set(r['sourcePage'] for r in records)) == [53, 54, 55, 56]
-payload = dict(year=2026, examYear=2025, verifiedAt='2026-09-23',
+payload = dict(year=2026, examYear=2025, verifiedAt='2026-10-19',
                sourceUrl='https://gs.hainanu.edu.cn/__local/0/6D/6F/CB936332381D12B6ACB9BBAB8EF_4E26C726_110B69.pdf',
                sourceTitle='海南大学2026年硕士研究生拟录取名单（不含推免生）',
                announcementUrl='https://gs.hainanu.edu.cn/info/1024/8562.htm',

@@ -48,6 +48,18 @@ async function open(page) {
   await evaluate(`document.querySelector('.page-map-card[href="/${page}.html"]').click()`);
   await until(`document.querySelector('.guide-dialog[open] .guide-panel[data-page="${page}"]')`);
 }
+async function assertContentFits(label) {
+  // Layout bounds are checked after the deliberate entrance/selection motion.
+  await evaluate(`Promise.all(document.querySelector('.guide-dialog').getAnimations({ subtree: true })
+    .filter(animation => animation.effect.getTiming().iterations !== Infinity)
+    .map(animation => animation.finished.catch(() => {})))`);
+  const overflows = await evaluate(`Array.from(document.querySelectorAll('.guide-panel *')).filter(el =>
+    el.getClientRects().length && el.clientWidth > 0 && !el.closest('.score-table, .sr-only, .filter-select-menu') &&
+    getComputedStyle(el).visibility !== 'hidden' && !el.matches('.live-updates-console') &&
+    !['auto', 'scroll'].includes(getComputedStyle(el).overflowX) && el.scrollWidth > el.clientWidth + 2
+  ).map(el => ({ element: el.className || el.tagName, width: el.clientWidth, content: el.scrollWidth }))`);
+  assert.deepEqual(overflows, [], `${label}: content must fit inside its card`);
+}
 async function key(value) {
   const windowsVirtualKeyCode = { Escape: 27, Tab: 9, ArrowRight: 39, Enter: 13 }[value];
   await send('Input.dispatchKeyEvent', { type: 'keyDown', key: value, code: value, windowsVirtualKeyCode });
@@ -77,7 +89,101 @@ async function key(value) {
   session = (await send('Target.attachToTarget', { targetId, flatten: true }, false)).sessionId;
   await send('Page.enable'); await send('Runtime.enable');
   const base = `http://127.0.0.1:${server.address().port}`;
-  for (const width of [1440, 390]) {
+  // Changing to shorter content must resize continuously, including when a
+  // second selection interrupts it. Selection itself remains synchronous.
+  await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+  await send('Page.navigate', { url: base + '/preparation.html' });
+  await until(`document.readyState === 'complete' && document.querySelector('[role="tab"]')`);
+  const resize = await evaluate(`new Promise(resolve => {
+    const panes = document.querySelector('.reading-panes');
+    const tabs = document.querySelectorAll('[role="tab"]');
+    const before = panes.getBoundingClientRect().height;
+    tabs[2].click();
+    const immediate = panes.getBoundingClientRect().height;
+    const samples = [];
+    const started = performance.now();
+    function tick() {
+      samples.push(panes.getBoundingClientRect().height);
+      if (performance.now() - started < 500) return requestAnimationFrame(tick);
+      resolve({ before, immediate, samples, final: panes.getBoundingClientRect().height,
+        selected: tabs[2].getAttribute('aria-selected') });
+    }
+    requestAnimationFrame(tick);
+  })`);
+  assert.equal(resize.selected, 'true');
+  assert.ok(Math.abs(resize.before - resize.final) > 20, `fixture must switch between different content heights: ${JSON.stringify(resize)}`);
+  assert.ok(Math.abs(resize.immediate - resize.before) < 2, 'the content area must not jump to its new height');
+  assert.ok(resize.samples.some(height => height > Math.min(resize.before, resize.final) + 2 && height < Math.max(resize.before, resize.final) - 2), 'the content area must pass through intermediate heights');
+  await evaluate(`document.querySelectorAll('[role="tab"]')[0].click()`);
+  await evaluate(`new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))`);
+  const interrupted = await evaluate(`(() => {
+    const panes = document.querySelector('.reading-panes');
+    const before = panes.getBoundingClientRect().height;
+    document.querySelectorAll('[role="tab"]')[3].click();
+    return { before, after: panes.getBoundingClientRect().height };
+  })()`);
+  assert.ok(Math.abs(interrupted.after - interrupted.before) < 2, 'rapid selections must resume from the current displayed height');
+  await evaluate(`window.dispatchEvent(new Event('beforeprint'))`);
+  await send('Emulation.setEmulatedMedia', { media: 'print' });
+  assert.equal(await evaluate(`document.querySelector('.reading-panes').getAnimations().some(animation => animation.playState === 'running')`), false, 'printing must release temporary height animations');
+  await send('Emulation.setEmulatedMedia', { media: 'screen', features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
+  await evaluate(`window.dispatchEvent(new Event('afterprint')); document.querySelectorAll('[role="tab"]')[1].click()`);
+  const reducedAnimations = await evaluate(`document.querySelector('.reading-panes').getAnimations({subtree:true}).filter(animation => animation.playState === 'running' && animation.effect.getTiming().duration > 1).map(animation => ({ name: animation.animationName || animation.transitionProperty || 'layout', duration: animation.effect.getTiming().duration }))`);
+  assert.deepEqual(reducedAnimations, [], 'reduced motion must switch content immediately');
+  await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }] });
+  await send('Page.navigate', { url: base + '/application.html' });
+  await until(`document.readyState === 'complete' && document.querySelector('.step-picker')`);
+  const nestedResize = await evaluate(`new Promise(resolve => {
+    const panes = document.querySelector('.reading-panes');
+    document.querySelectorAll('[role="tab"]')[1].click();
+    const started = performance.now(), samples = [];
+    setTimeout(() => document.querySelectorAll('.step-picker button')[3].click(), 100);
+    function tick() {
+      if (performance.now() - started >= 120) samples.push(panes.getBoundingClientRect().height);
+      if (performance.now() - started < 850) return requestAnimationFrame(tick);
+      resolve({ samples, final: panes.getBoundingClientRect().height,
+        content: document.querySelector('.step-reader').getBoundingClientRect().height });
+    }
+    requestAnimationFrame(tick);
+  })`);
+  assert.ok(nestedResize.samples.slice(1).every((height, index) => Math.abs(height - nestedResize.samples[index]) < 120), 'a step change during a tab transition must not jump when the old parent animation finishes');
+  assert.ok(nestedResize.final >= nestedResize.content, 'nested content must fit after both transitions settle');
+  // The card is narrower than the browser. Check its content, including long
+  // email links with enlarged text, rather than only the clipped dialog frame.
+  for (const width of [320, 700]) {
+    await send('Emulation.setDeviceMetricsOverride', { width, height: 720, deviceScaleFactor: 1, mobile: false });
+    await send('Page.navigate', { url: base + '/' });
+    await until(`document.readyState === 'complete' && document.querySelector('.guide-dialog')`);
+    if (width === 320) await evaluate(`document.documentElement.style.fontSize = '20px'`);
+    for (const page of ['application', 'materials']) {
+      await open(page);
+      const tabCount = await evaluate(`document.querySelectorAll('.guide-panel [role="tab"]').length`);
+      for (let tab = 0; tab < tabCount; tab++) {
+        await evaluate(`document.querySelectorAll('.guide-panel [role="tab"]')[${tab}].click()`);
+        await assertContentFits(`${page}, tab ${tab}, ${width}px`);
+      }
+      if (page === 'application') {
+        await evaluate(`document.querySelectorAll('.guide-panel [role="tab"]')[1].click()`);
+        for (let step = 0; step < 8; step++) {
+          await evaluate(`document.querySelectorAll('.guide-panel .step-picker button')[${step}].click()`);
+          await assertContentFits(`application step ${step + 1}, ${width}px`);
+        }
+        assert.equal(await evaluate(`(() => {
+          const step = document.querySelector('.guide-panel .step-reader > li:not([hidden])');
+          return step.children[1].getBoundingClientRect().left === step.children[0].getBoundingClientRect().left;
+        })()`), true, 'narrow cards must give the step content the full row');
+      } else {
+        await evaluate(`document.querySelector('.guide-panel [role="tab"]').click()`);
+        assert.equal(await evaluate(`(() => {
+          const items = document.querySelector('.guide-panel .checklist-grid').children;
+          return items[1].getBoundingClientRect().top >= items[0].getBoundingClientRect().bottom;
+        })()`), true, 'material rows must stack when the card is too narrow for two readable columns');
+      }
+      await capture(`content-fit-${page}-${width}`);
+      await close();
+    }
+  }
+  for (const width of [1440, 768, 390, 320]) {
     await send('Emulation.setDeviceMetricsOverride', { width, height: 900, deviceScaleFactor: 1, mobile: false });
     await send('Page.navigate', { url: base + '/' });
     await until(`document.readyState === 'complete'`);
@@ -113,6 +219,7 @@ async function key(value) {
       for (let tab = 0; tab < tabCount; tab++) {
         await evaluate(`document.querySelectorAll('.guide-panel [role="tab"]')[${tab}].click()`);
         assert.equal(await evaluate(`document.querySelectorAll('.guide-panel [role="tabpanel"]:not([hidden])').length`), 1);
+        await assertContentFits(`${page}, tab ${tab}, ${width}px`);
       }
       if (tabCount) await evaluate(`document.querySelector('.guide-panel [role="tab"]').click()`);
       if (page === 'application') {
@@ -120,21 +227,89 @@ async function key(value) {
         for (let step = 0; step < 8; step++) {
           await evaluate(`document.querySelectorAll('.guide-panel .step-picker button')[${step}].click()`);
           assert.equal(await evaluate(`document.querySelectorAll('.guide-panel .apply-steps > li:not([hidden])').length`), 1);
+          await assertContentFits(`application step ${step + 1}, ${width}px`);
         }
       }
       if (page === 'timeline') {
         assert.equal(await evaluate(`document.querySelectorAll('.guide-panel .timeline-launch').length`), 15);
+        assert.deepEqual(await evaluate(`Array.from(document.querySelectorAll('.guide-panel .timeline-date')).filter(el => el.scrollWidth > el.clientWidth + 1).map(el => el.textContent)`), [], `timeline dates and labels must fit their cards at ${width}px`);
         await evaluate(`document.querySelector('.guide-panel [data-filter="exam"]').click(); document.querySelector('.guide-panel .timeline-item:not([hidden]) .timeline-launch').click()`);
         assert.equal(await evaluate(`document.querySelector('.guide-panel .timeline-detail').hidden`), false);
         await evaluate(`document.querySelector('.guide-panel [data-timeline-back]').click()`);
         assert.equal(await evaluate(`document.querySelector('.guide-panel .timeline-detail').hidden`), true);
+        await evaluate(`document.querySelector('.guide-panel .timeline-item:not([hidden]) .timeline-launch').click()`);
+        assert.equal(await evaluate(`document.querySelector('.guide-panel .timeline-detail').hidden`), false);
+        await close();
+        await open('timeline');
+        assert.equal(await evaluate(`document.querySelector('.guide-panel .timeline-detail').hidden`), true, 'reopening a cached timeline card must reset single-node detail view');
+        assert.equal(await evaluate(`document.querySelector('.guide-panel .timeline-list').hidden`), false);
+        assert.equal(await evaluate(`document.activeElement.hasAttribute('data-guide-close')`), true, 'reopening a cached timeline card must keep focus on the close button');
       }
       if (page === 'updates') {
         await until(`document.querySelector('.guide-panel .official-update-link')`);
+        await evaluate(`Promise.all(document.querySelector('.guide-dialog').getAnimations({ subtree: true }).filter(animation => animation.effect.getTiming().iterations !== Infinity).map(animation => animation.finished.catch(() => {})))`);
         await evaluate(`document.querySelector('.guide-panel #updates-year-trigger').focus(); document.querySelector('.guide-panel #updates-year-trigger').click()`);
         assert.equal(await evaluate(`document.querySelector('.guide-dialog .filter-select-menu[data-open="true"]') !== null`), true);
+        await capture(`updates-dropdown-${width}`);
+        const menuPosition = await evaluate(`(() => {
+          const trigger = document.querySelector('.guide-panel #updates-year-trigger').getBoundingClientRect();
+          const menu = document.querySelector('.guide-panel #updates-year-listbox');
+          const rect = menu.getBoundingClientRect();
+          const option = menu.querySelector('[role="option"]');
+          const row = option.getBoundingClientRect();
+          return { horizontalOffset: rect.left - trigger.left, gap: menu.dataset.direction === 'up' ? trigger.top - rect.bottom : rect.top - trigger.bottom,
+            visible: rect.left >= 0 && rect.right <= innerWidth && rect.top >= 0 && rect.bottom <= innerHeight,
+            clickable: option.contains(document.elementFromPoint(row.left + row.width / 2, row.top + row.height / 2)) };
+        })()`);
+        assert.ok(Math.abs(menuPosition.horizontalOffset) <= 1, `filter menu must align with its trigger at ${width}px: ${JSON.stringify(menuPosition)}`);
+        assert.ok(Math.abs(menuPosition.gap - 8) <= 1, `filter menu must stay next to its trigger at ${width}px`);
+        assert.equal(menuPosition.visible && menuPosition.clickable, true, 'filter options must be visible and clickable');
         await key('Escape');
         assert.equal(await evaluate(`document.querySelector('.guide-dialog').open`), true);
+        await close();
+        // A cached panel is interactive before its entrance animation finishes.
+        const duringEntrance = await evaluate(`new Promise(resolve => {
+          document.querySelector('.page-map-card[href="/updates.html"]').click();
+          document.querySelector('.guide-panel #updates-year-trigger').click();
+          requestAnimationFrame(() => {
+            const trigger = document.querySelector('.guide-panel #updates-year-trigger').getBoundingClientRect();
+            const menu = document.querySelector('.guide-panel #updates-year-listbox');
+            const rect = menu.getBoundingClientRect();
+            resolve({
+              centerOffset: (rect.left + rect.right - trigger.left - trigger.right) / 2,
+              gap: menu.dataset.direction === 'up' ? trigger.top - rect.bottom : rect.top - trigger.bottom
+            });
+          });
+        })`);
+        assert.ok(Math.abs(duringEntrance.centerOffset) <= 1 && Math.abs(duringEntrance.gap - 8) <= 8,
+          `a filter opened during the entrance must align during the entrance animation at ${width}px: ${JSON.stringify(duringEntrance)}`);
+        await evaluate(`Promise.all(document.querySelector('.guide-dialog').getAnimations({ subtree: true }).filter(animation => animation.effect.getTiming().iterations !== Infinity).map(animation => animation.finished.catch(() => {})))`);
+        const earlyPosition = await evaluate(`(() => {
+          const trigger = document.querySelector('.guide-panel #updates-year-trigger').getBoundingClientRect();
+          const menu = document.querySelector('.guide-panel #updates-year-listbox');
+          const rect = menu.getBoundingClientRect();
+          return { offset: rect.left - trigger.left, gap: menu.dataset.direction === 'up' ? trigger.top - rect.bottom : rect.top - trigger.bottom };
+        })()`);
+        assert.ok(Math.abs(earlyPosition.offset) <= 1 && Math.abs(earlyPosition.gap - 8) <= 1,
+          `a filter opened during the entrance must stay aligned at ${width}px: ${JSON.stringify(earlyPosition)}`);
+        const closedOnScroll = await evaluate(`(() => {
+          const body = document.querySelector('.guide-dialog-body');
+          const trigger = document.querySelector('.guide-panel #updates-year-trigger');
+          const menu = document.querySelector('.guide-panel #updates-year-listbox');
+          body.scrollTop = trigger.getBoundingClientRect().bottom - body.getBoundingClientRect().top + 12;
+          body.dispatchEvent(new Event('scroll'));
+          const openAfterScroll = menu.dataset.open;
+          body.scrollTop = 0;
+          return openAfterScroll;
+        })()`);
+        assert.equal(closedOnScroll, 'false', 'scrolling a filter trigger behind the card header must close its menu');
+        await evaluate(`document.querySelector('.guide-panel #updates-year-trigger').click()`);
+        assert.equal(await evaluate(`document.querySelector('.guide-panel #updates-year-listbox').dataset.open`), 'true');
+        await evaluate(`document.querySelector('[data-guide-close]').click()`);
+        assert.equal(await evaluate(`document.querySelector('.guide-panel #updates-year-listbox').dataset.open`), 'false', 'dismissing a card must close any open filter menu immediately');
+        await until(`!document.querySelector('.guide-dialog').open`);
+        await open('updates');
+        assert.equal(await evaluate(`document.querySelector('.guide-panel #updates-year-listbox').dataset.open`), 'false', 'reopening updates must not restore a stale open filter menu');
       }
       await capture(`${page}-${width}`); report.push({ width, page, ...dimensions }); await close();
     }
@@ -158,7 +333,7 @@ async function key(value) {
   assert.equal(await evaluate(`document.querySelector('.guide-panel .task-check').checked`), true, 'blocked storage must retain cross-card session progress');
   assert.equal(await evaluate(`document.querySelector('#progress-count').textContent`), '2 / 21 项');
   assert.equal(await evaluate(`document.querySelector('.guide-back').hidden`), true, 'a fresh card has no stale back trail');
-  await evaluate(`window.dispatchEvent(new Event('beforeprint'))`);
+  await evaluate(`window.dispatchEvent(new Event('beforeprint')); window.dispatchEvent(new Event('beforeprint'))`);
   assert.equal(await evaluate(`document.querySelector('.guide-panel .reading-context').open`), true);
   await send('Emulation.setEmulatedMedia', { media: 'print' });
   assert.equal(await evaluate(`getComputedStyle(document.querySelectorAll('.guide-panel .reading-pane')[1]).display`), 'block');
@@ -203,6 +378,20 @@ async function key(value) {
   assert.equal(motion[0].closing, true, 'the closing state must be applied immediately');
   assert.equal(motion[motion.length - 1].open, false, 'the card must close after the exit animation');
   assert.ok(motion[motion.length - 1].at >= 100, `the exit animation must delay the close (${motion[motion.length - 1].at}ms)`);
+  const interruptedEntrance = await evaluate(`new Promise(resolve => {
+    document.querySelector('.page-map-card[href="/programs.html"]').click();
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      const dialog = document.querySelector('.guide-dialog');
+      const before = Number(getComputedStyle(dialog).opacity);
+      const backdropBefore = Number(getComputedStyle(dialog, '::backdrop').opacity);
+      document.querySelector('[data-guide-close]').click();
+      resolve({ before, after: Number(getComputedStyle(dialog).opacity), backdropBefore,
+        backdropAfter: Number(getComputedStyle(dialog, '::backdrop').opacity) });
+    }));
+  })`);
+  assert.ok(Math.abs(interruptedEntrance.before - interruptedEntrance.after) < .05, 'closing during the entrance must not flash back to full opacity');
+  assert.ok(Math.abs(interruptedEntrance.backdropBefore - interruptedEntrance.backdropAfter) < .05, 'the backdrop must also continue from its current opacity');
+  await until(`!document.querySelector('.guide-dialog').open`);
   await open('programs');
   await evaluate(`document.querySelector('[data-guide-close]').click(); document.querySelector('[data-guide-close]').click()`);
   await key('Escape');
@@ -241,7 +430,7 @@ async function key(value) {
   await close();
   assert.deepEqual(errors, []);
   fs.writeFileSync(path.join(out, 'report.json'), JSON.stringify(report, null, 2));
-  console.log(`PASS: ${report.length} desktop/mobile panels; URL, scroll, focus, progress, filters, Escape and deep links.`);
+  console.log(`PASS: ${report.length} desktop/mobile panels plus narrow/enlarged-text registration and materials; content fit, URL, scroll, focus, progress, filters, Escape and deep links.`);
 })().catch(error => { console.error(error); process.exitCode = 1; }).finally(async () => {
   if (ws?.readyState === WebSocket.OPEN) { await send('Browser.close', {}, false).catch(() => {}); ws.close(); }
   child?.kill(); server.close(); server.closeAllConnections();
