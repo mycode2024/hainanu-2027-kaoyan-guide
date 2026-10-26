@@ -2,9 +2,22 @@
   'use strict';
 
   const DAY_MS = 86_400_000;
+  const BEIJING_OFFSET_MS = 8 * 60 * 60 * 1000;
   const STORAGE_KEY = 'hainanu-2027-kaoyan-progress-v1';
   const LAST_SEEN_UPDATES_KEY = 'hainanu-2027-kaoyan-last-seen-v1';
-  const kCardExitAnimationMs = 220;
+  const kCardExitAnimationFallbackMs = 200;
+  // The exit duration is authored in CSS so the keyframe and the close timer stay in sync.
+  function readCardExitAnimationMs() {
+    if (typeof document === 'undefined' || typeof window === 'undefined' || typeof window.getComputedStyle !== 'function') {
+      return kCardExitAnimationFallbackMs;
+    }
+    const raw = window.getComputedStyle(document.documentElement).getPropertyValue('--dialog-exit-ms').trim();
+    const match = raw.match(/^(-?\d*\.?\d+)(ms|s)?$/);
+    if (!match) return kCardExitAnimationFallbackMs;
+    const value = parseFloat(match[1]);
+    if (!Number.isFinite(value)) return kCardExitAnimationFallbackMs;
+    return match[2] === 's' ? value * 1000 : value;
+  }
   let sessionChecklistState = {};
   let sessionProgressOnly = false;
   const CHECKLIST_IDS = Object.freeze([
@@ -21,10 +34,19 @@
     { id: 'verify', start: '2026-07-02', end: '2026-09-14', label: '锁定专业基线', action: '按 408 推进一轮复习，并核对 2027 正式目录' },
     { id: 'directory', start: '2026-09-15', end: '2026-09-30', label: '招生目录与报考资格核对', action: '逐字段核对专业、院系、科目、备注与计划' },
     { id: 'consultation', start: '2026-09-26', end: '2026-09-29', label: '研招咨询活动', action: '进入研招网在线咨询，向招生单位核对专业限制、科目和报考要求' },
-    { id: 'preapply', start: '2026-10-09', end: '2026-10-12', label: '网上预报名', action: '每日 9:00—22:00；按所在省安排填报并提交核验材料' },
+    { id: 'preapply', start: '2026-10-09', end: '2026-10-12', label: '网上预报名', action: '每日 9:00—22:00；按所在省安排填报并提交核验材料',
+      endsAt: '2026-10-12T22:00:00+08:00', deadlineTitle: '网上预报名截止', deadlineCheck: 'stage-preapply',
+      deadlineScope: '预报名适用范围按所在省安排；每日 9:00—22:00 开放。',
+      deadlineClosedScope: '预报名已截止；尚未报名者请查看正式报名安排，已报名者请核对提交信息。' },
     { id: 'edu-verify', start: '2026-10-09', end: '2026-10-20', label: '学历校验补证', action: '学历（学籍）网上校验未通过者，10 月 20 日前发送证明至 hdyzb@hainanu.edu.cn', reviewScoped: true },
-    { id: 'apply', start: '2026-10-15', end: '2026-10-24', label: '全国网上报名', action: '每日 9:00—22:00；填写信息、一并提交核验材料并完成缴费' },
-    { id: 'review-4603', start: '2026-10-26', end: '2026-10-31', label: '4603 审核补交', action: '海甸 4603 报考点 10 月 26—31 日集中审核，补交截至 10 月 31 日 12:00；其他报考点按当地公告执行', reviewScoped: true },
+    { id: 'apply', start: '2026-10-15', end: '2026-10-24', label: '全国网上报名', action: '每日 9:00—22:00；填写信息、一并提交核验材料并完成缴费',
+      endsAt: '2026-10-24T22:00:00+08:00', deadlineTitle: '全国网上报名截止', deadlineCheck: 'stage-apply',
+      deadlineScope: '请在截止前完成报名与缴费；每日 9:00—22:00 开放。',
+      deadlineClosedScope: '正式报名已截止；已报名者请继续核对材料与审核结果。' },
+    { id: 'review-4603', start: '2026-10-26', end: '2026-10-31', label: '4603 审核补交', action: '海甸 4603 报考点 10 月 26—31 日集中审核，补交截至 10 月 31 日 12:00；其他报考点按当地公告执行', reviewScoped: true,
+      deadlineAt: '2026-10-31T12:00:00+08:00', deadlineTitle: '4603 材料补交截止', deadlineCheck: 'stage-confirm',
+      deadlineScope: '仅海甸校区 4603 报考点且被要求补交者适用；其他报考点另查公告。',
+      closedLabel: '4603 审核（补交已截止）', closedAction: '海甸 4603 报考点仍在集中审核阶段，材料补交已于 10 月 31 日 12:00 截止；请核对审核结果，其他报考点按各自公告执行' },
     // The 2027 process combines registration and confirmation. Local review and
     // supplementary-material deadlines are not a separate national date range.
     { id: 'confirm', start: null, end: null, label: '材料核验与补交', action: '报名时提交材料，补交时限按省级机构和报考点公告执行' },
@@ -44,9 +66,13 @@
   }
 
   function getTimelineState(items, today) {
-    const now = toUtcDay(today);
+    // Date-only callers retain calendar-day semantics; live pages pass an instant.
+    const dateOnly = typeof today === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(today);
+    const instant = new Date(dateOnly ? `${today}T00:00:00+08:00` : today);
+    const now = toUtcDay(dateOnly ? today : getBeijingDateString(instant));
     const active = items
-      .filter((item) => now >= toUtcDay(item.start) && now <= toUtcDay(item.end))
+      .filter((item) => now >= toUtcDay(item.start) && now <= toUtcDay(item.end)
+        && (!item.endsAt || instant.getTime() < Date.parse(item.endsAt)))
       .sort((a, b) => toUtcDay(a.start) - toUtcDay(b.start));
     const next = items
       .filter((item) => toUtcDay(item.start) > now)
@@ -113,11 +139,28 @@
     return { completed, total, percent: calculateProgress(completed, total) };
   }
 
-  function getLocalDateString(date) {
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
+  function getBeijingDateString(date) {
+    return Number.isFinite(date.getTime())
+      ? new Date(date.getTime() + BEIJING_OFFSET_MS).toISOString().slice(0, 10)
+      : '';
+  }
+
+  function getDeadlineNotice(items, date, checks) {
+    const today = getBeijingDateString(date);
+    // Keep the deadline visible for its calendar phase even after its exact cutoff.
+    const milestone = items.filter(item => (item.endsAt || item.deadlineAt)
+      && today >= item.start && today <= item.end
+      && checks[item.deadlineCheck] !== true && checks[item.deadlineCheck] !== 'na')
+      .sort((a, b) => Date.parse(a.endsAt || a.deadlineAt) - Date.parse(b.endsAt || b.deadlineAt))[0];
+    if (!milestone) return null;
+    const at = milestone.endsAt || milestone.deadlineAt;
+    const remainingMs = Date.parse(at) - date.getTime();
+    const state = remainingMs <= 0 ? 'closed' : remainingMs <= DAY_MS ? 'urgent' : 'upcoming';
+    const minutes = Math.max(0, Math.ceil(remainingMs / 60_000));
+    const days = minutes > 1440 ? Math.floor(minutes / 1440) : 0;
+    const hours = Math.floor((minutes - days * 1440) / 60);
+    const parts = [days && `${days} 天`, hours && `${hours} 小时`, minutes % 60 && `${minutes % 60} 分钟`].filter(Boolean);
+    return { milestone, at, state, countdown: state === 'closed' ? '请核对后续审核要求' : `剩余 ${parts.join(' ')}` };
   }
 
   function isSafeOfficialUpdateUrl(value) {
@@ -1029,6 +1072,25 @@
     loadUpdates(false);
   }
 
+  function initHomeReadingOrder() {
+    const shell = document.querySelector('body[data-page="home"] .hero-shell');
+    const copy = shell?.querySelector('.hero-copy');
+    const panel = shell?.querySelector('.status-panel');
+    const narrow = window.matchMedia?.('(max-width: 640px)');
+    if (!copy || !panel || !narrow) return;
+
+    function syncOrder() {
+      const first = narrow.matches ? panel : copy;
+      const second = narrow.matches ? copy : panel;
+      if (first.nextElementSibling === second) return;
+      // Move the unfocused group so resizing never detaches the active control.
+      if (first.contains(document.activeElement)) shell.insertBefore(second, first.nextSibling);
+      else shell.insertBefore(first, second);
+    }
+    syncOrder();
+    narrow.addEventListener('change', syncOrder);
+  }
+
   function initSiteNavigation() {
     const toggle = document.querySelector('[data-site-nav-toggle]');
     const menu = document.querySelector('[data-site-nav-menu]');
@@ -1084,7 +1146,7 @@
       if (animation) { animation.onfinish = null; animation.cancel(); }
       targetHeight = after;
       animation = container.animate([{ height: `${before}px` }, { height: `${after}px` }], {
-        duration: 280, easing: 'cubic-bezier(.22, 1, .36, 1)'
+        duration: 240, easing: 'cubic-bezier(.2, 0, 0, 1)'
       });
       container.classList.add('content-resizing');
       animation.onfinish = finish;
@@ -1437,7 +1499,7 @@
         // Same synchronous close+cleanup as the instant path, so focus and scroll restore right away.
         dialog.close();
         cleanup();
-      }, kCardExitAnimationMs);
+      }, readCardExitAnimationMs());
     }
     close.addEventListener('click', dismiss);
     let backdropPress = false;
@@ -1556,18 +1618,26 @@
       window.location.replace(legacyDestination);
       return;
     }
-    if (root === document) initSiteNavigation();
+    if (root === document) {
+      initSiteNavigation();
+      initHomeReadingOrder();
+    }
     const timelineElements = Array.from(root.querySelectorAll('[data-milestone-id]'));
+    const deadlinePanel = root.querySelector('#current-deadline');
     function renderCurrentStage(checks) {
-      const todayString = getLocalDateString(new Date());
+      const now = new Date();
+      const todayString = getBeijingDateString(now);
       const reviewCompleted = checks['stage-confirm'] === true;
       const scheduledMilestones = reviewCompleted
         ? milestones.filter((milestone) => !milestone.reviewScoped)
         : milestones;
-      const state = getTimelineState(scheduledMilestones, todayString);
+      const state = getTimelineState(scheduledMilestones, now);
       const activeMilestones = state.activeIds
         .map((id) => milestones.find((milestone) => milestone.id === id))
-        .filter(Boolean);
+        .filter(Boolean)
+        .map(milestone => milestone.deadlineAt && now.getTime() >= Date.parse(milestone.deadlineAt)
+          ? { ...milestone, label: milestone.closedLabel, action: milestone.closedAction }
+          : milestone);
       // An undated local review deadline must not disappear from the task view.
       // This reminder does not extend any official submission deadline.
       const reviewPending = todayString >= '2026-10-09' && !reviewCompleted;
@@ -1602,6 +1672,26 @@
         nextDays.textContent = Number.isFinite(state.daysToNext)
           ? `${nextMilestone?.estimated ? '约 ' : ''}${state.daysToNext} 天`
           : '—';
+      }
+      if (deadlinePanel) {
+        const notice = getDeadlineNotice(scheduledMilestones, now, checks);
+        deadlinePanel.hidden = !notice;
+        if (notice) {
+          deadlinePanel.dataset.state = notice.state;
+          const status = root.querySelector('#current-deadline-status');
+          const statusText = { upcoming: '截止提醒', urgent: '即将截止', closed: '已截止' }[notice.state];
+          // Only announce a status change, not each countdown tick.
+          if (status.textContent !== statusText) status.textContent = statusText;
+          root.querySelector('#current-deadline-title').textContent = notice.milestone.deadlineTitle;
+          const time = root.querySelector('#current-deadline-time');
+          time.setAttribute('datetime', notice.at);
+          const [year, month, day] = notice.at.slice(0, 10).split('-');
+          time.textContent = `${year} 年 ${Number(month)} 月 ${Number(day)} 日 ${notice.at.slice(11, 16)}（北京时间）`;
+          root.querySelector('#current-deadline-countdown').textContent = notice.countdown;
+          root.querySelector('#current-deadline-scope').textContent = notice.state === 'closed'
+            ? notice.milestone.deadlineClosedScope || notice.milestone.deadlineScope
+            : notice.milestone.deadlineScope;
+        }
       }
     }
     const checkboxes = Array.from(root.querySelectorAll('.task-check[data-check-id]'));
@@ -1676,6 +1766,7 @@
         }
       }
       renderProgress();
+      scheduleStageRefresh();
       if (typeof document.dispatchEvent === 'function') {
         document.dispatchEvent(new CustomEvent('guide-progress-change', { detail: checklistState }));
       }
@@ -1692,6 +1783,7 @@
     document.addEventListener('guide-progress-change', (event) => {
       checklistState = mergeChecklistState(event.detail, {});
       renderProgress();
+      scheduleStageRefresh();
     });
     function refreshChecklist() {
       if (sessionProgressOnly) {
@@ -1719,13 +1811,18 @@
       stopStageRefresh();
       if (document.visibilityState === 'hidden') return;
       const now = new Date();
-      const nextMidnight = new Date(now.getTime());
-      nextMidnight.setHours(24, 0, 0, 0);
+      const timestamp = now.getTime();
+      const nextMidnight = toUtcDay(getBeijingDateString(now)) + DAY_MS - BEIJING_OFFSET_MS;
+      const upcomingCutoffs = milestones.map(item => Date.parse(item.endsAt || item.deadlineAt))
+        .filter(at => at > timestamp);
+      const countdownTick = deadlinePanel && !deadlinePanel.hidden && deadlinePanel.dataset.state !== 'closed'
+        ? timestamp + 60_000 - timestamp % 60_000 : Infinity;
+      const nextRefresh = Math.min(nextMidnight, countdownTick, ...upcomingCutoffs);
       stageRefreshTimer = window.setTimeout(() => {
         stageRefreshTimer = null;
         refreshChecklist();
         scheduleStageRefresh();
-      }, Math.max(1, nextMidnight.getTime() - now.getTime()));
+      }, Math.max(1, nextRefresh - timestamp));
     }
     scheduleStageRefresh();
     document.addEventListener('visibilitychange', () => {
@@ -1746,6 +1843,7 @@
         if (progressStorage && event.storageArea === progressStorage &&
             (event.key === STORAGE_KEY || event.key === null)) {
           refreshChecklist();
+          scheduleStageRefresh();
         }
       });
     }

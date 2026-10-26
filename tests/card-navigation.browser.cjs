@@ -89,6 +89,49 @@ async function key(value) {
   session = (await send('Target.attachToTarget', { targetId, flatten: true }, false)).sessionId;
   await send('Page.enable'); await send('Runtime.enable');
   const base = `http://127.0.0.1:${server.address().port}`;
+  // CSS-only reordering made mobile keyboard navigation jump below the task
+  // card and then back up. Check real Tab navigation as well as reading order.
+  for (const width of [390, 640, 641, 1440]) {
+    await send('Emulation.setDeviceMetricsOverride', { width, height: 900, deviceScaleFactor: 1, mobile: false });
+    await send('Page.navigate', { url: base + '/' });
+    await until(`document.readyState === 'complete' && document.querySelector('.guide-dialog')`);
+    const narrow = width <= 640;
+    const first = narrow ? '.status-panel' : '.hero-copy';
+    const second = narrow ? '.hero-copy' : '.status-panel';
+    assert.equal(await evaluate(`document.querySelector('.hero-shell').firstElementChild.matches('${first}')`), true,
+      `reading order must match the layout at ${width}px`);
+    await evaluate(`document.querySelector('${first} a').focus()`);
+    await key('Tab');
+    assert.equal(await evaluate(`document.activeElement.matches('${narrow ? '#reset-progress' : '.hero-actions a:last-child'}')`), true);
+    await key('Tab');
+    assert.equal(await evaluate(`document.activeElement === document.querySelector('${second} a')`), true,
+      `Tab must continue into the next visible group at ${width}px`);
+    if (narrow) {
+      await evaluate(`document.querySelector('[data-site-nav-toggle]').focus()`);
+      await key('Tab');
+      assert.equal(await evaluate(`document.activeElement === document.querySelector('.stage-actions a')`), true,
+        'the collapsed mobile navigation must lead directly to the task card');
+    }
+  }
+  // Crossing the breakpoint must preserve focus in either group and keep the
+  // same dashboard nodes (and their event listeners), including with a card open.
+  for (const selector of ['.stage-actions a', '#reset-progress', '.hero-actions a:first-child', '.hero-actions a:last-child']) {
+    await evaluate(`document.querySelector('${selector}').focus(); window.savedTaskPanel = document.querySelector('.status-panel')`);
+    for (const width of [390, 1440]) {
+      await send('Emulation.setDeviceMetricsOverride', { width, height: 900, deviceScaleFactor: 1, mobile: false });
+      await evaluate(`new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))`);
+      assert.equal(await evaluate(`document.activeElement.matches('${selector}')`), true, `resize must retain focus on ${selector}`);
+      assert.equal(await evaluate(`document.querySelector('.status-panel') === window.savedTaskPanel`), true);
+      assert.equal(await evaluate(`document.querySelector('.hero-shell').firstElementChild.matches('${width <= 640 ? '.status-panel' : '.hero-copy'}')`), true);
+    }
+  }
+  await evaluate(`document.querySelector('.hero-actions a:last-child').focus(); document.activeElement.click()`);
+  await until(`document.querySelector('.guide-dialog[open] .guide-panel[data-page="materials"]')`);
+  await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 900, deviceScaleFactor: 1, mobile: false });
+  await evaluate(`new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))`);
+  assert.equal(await evaluate(`document.activeElement.closest('.guide-dialog') !== null`), true, 'resizing must not steal dialog focus');
+  await close();
+  assert.equal(await evaluate(`document.activeElement.matches('.hero-actions a:last-child')`), true, 'closing must restore focus to the moved opener');
   // Changing to shorter content must resize continuously, including when a
   // second selection interrupts it. Selection itself remains synchronous.
   await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
@@ -428,9 +471,49 @@ async function key(value) {
   assert.equal(await evaluate(`document.querySelector('.guide-panel .task-check').checked`), true, 'failed writes must not restore stale readable storage');
   assert.equal(await evaluate(`document.querySelector('#progress-count').textContent`), '2 / 21 项');
   await close();
+  // Deadlines must use Beijing time even on a browser in a different time zone.
+  await send('Emulation.setTimezoneOverride', { timezoneId: 'America/Los_Angeles' });
+  await send('Page.addScriptToEvaluateOnNewDocument', { source: `
+    const RealDate = Date;
+    window.guideTestTime = RealDate.parse('2026-10-24T21:59:30+08:00');
+    window.Date = class extends RealDate {
+      constructor(...args) { super(...(args.length ? args : [window.guideTestTime])); }
+      static now() { return window.guideTestTime; }
+    };
+  ` });
+  for (const width of [1440, 390, 320]) {
+    await send('Emulation.setDeviceMetricsOverride', { width, height: 900, deviceScaleFactor: 1, mobile: false });
+    await send('Page.navigate', { url: base + '/' });
+    await until(`document.readyState === 'complete' && document.querySelector('.guide-dialog')`);
+    await evaluate(`localStorage.clear(); window.dispatchEvent(new Event('pageshow'))`);
+    if (width === 320) await evaluate(`document.documentElement.style.fontSize = '20px'`);
+    assert.equal(await evaluate(`document.querySelector('#current-deadline').dataset.state`), 'urgent');
+    if (width < 640) {
+      const layout = await evaluate(`(() => {
+        const panel = document.querySelector('.status-panel').getBoundingClientRect();
+        const hero = document.querySelector('.hero-copy').getBoundingClientRect();
+        const detail = document.querySelector('#current-stage-detail');
+        const deadline = document.querySelector('#current-deadline');
+        return { first: panel.top < hero.top, visible: deadline.getBoundingClientRect().bottom <= innerHeight,
+          textFits: detail.scrollHeight <= detail.clientHeight + 1,
+          widthFits: document.documentElement.scrollWidth <= innerWidth + 1 };
+      })()`);
+      assert.deepEqual(layout, { first: true, visible: true, textFits: true, widthFits: true }, `home tasks at ${width}px`);
+    }
+    await capture(`deadline-urgent-${width}`);
+    await evaluate(`window.guideTestTime = Date.parse('2026-10-24T22:00:00+08:00'); window.dispatchEvent(new Event('pageshow'))`);
+    assert.equal(await evaluate(`document.querySelector('#current-deadline').dataset.state`), 'closed');
+    assert.doesNotMatch(await evaluate(`document.querySelector('#current-stage-name').textContent`), /全国网上报名/);
+    await capture(`deadline-closed-${width}`);
+    await evaluate(`window.guideTestTime = Date.parse('2026-10-31T12:00:00+08:00'); window.dispatchEvent(new Event('pageshow'))`);
+    assert.equal(await evaluate(`document.querySelector('#current-deadline').dataset.state`), 'closed');
+    assert.match(await evaluate(`document.querySelector('#current-stage-name').textContent`), /4603 审核（补交已截止）/);
+    assert.match(await evaluate(`document.querySelector('#current-deadline-scope').textContent`), /其他报考点/);
+    await capture(`deadline-review-${width}`);
+  }
   assert.deepEqual(errors, []);
   fs.writeFileSync(path.join(out, 'report.json'), JSON.stringify(report, null, 2));
-  console.log(`PASS: ${report.length} desktop/mobile panels plus narrow/enlarged-text registration and materials; content fit, URL, scroll, focus, progress, filters, Escape and deep links.`);
+  console.log(`PASS: ${report.length} desktop/mobile panels plus narrow/enlarged-text registration and materials; content fit, URL, scroll, focus, progress, filters, Escape, deep links, precise Beijing deadlines and mobile task visibility.`);
 })().catch(error => { console.error(error); process.exitCode = 1; }).finally(async () => {
   if (ws?.readyState === WebSocket.OPEN) { await send('Browser.close', {}, false).catch(() => {}); ws.close(); }
   child?.kill(); server.close(); server.closeAllConnections();

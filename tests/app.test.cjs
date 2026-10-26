@@ -174,7 +174,8 @@ function installFakePage(options = {}) {
   const documentListeners = new Map();
   const windowListeners = new Map();
   let timerId = 0;
-  let clockTime = options.today ? new originalDate(`${options.today}T12:00:00`).valueOf() : null;
+  let clockTime = options.at ? new originalDate(options.at).valueOf()
+    : options.today ? new originalDate(`${options.today}T12:00:00+08:00`).valueOf() : null;
 
   const elements = {
     acknowledge: createFakeElement(),
@@ -202,6 +203,12 @@ function installFakePage(options = {}) {
     pageStatus: createFakeElement(),
     stageDetail: createFakeElement(),
     stageName: createFakeElement(),
+    deadline: createFakeElement({ hidden: true }),
+    deadlineStatus: createFakeElement(),
+    deadlineTitle: createFakeElement(),
+    deadlineTime: createFakeElement(),
+    deadlineCountdown: createFakeElement(),
+    deadlineScope: createFakeElement(),
     nextDays: createFakeElement(),
     nextName: createFakeElement(),
     navMenu: createFakeElement(),
@@ -231,6 +238,12 @@ function installFakePage(options = {}) {
     ['#updates-category', elements.categoryFilter],
     ['#current-stage-detail', elements.stageDetail],
     ['#current-stage-name', elements.stageName],
+    ['#current-deadline', elements.deadline],
+    ['#current-deadline-status', elements.deadlineStatus],
+    ['#current-deadline-title', elements.deadlineTitle],
+    ['#current-deadline-time', elements.deadlineTime],
+    ['#current-deadline-countdown', elements.deadlineCountdown],
+    ['#current-deadline-scope', elements.deadlineScope],
     ['#next-stage-days', elements.nextDays],
     ['#next-stage-name', elements.nextName],
     ['#reset-progress', elements.reset],
@@ -330,7 +343,7 @@ function installFakePage(options = {}) {
 
   global.document = fakeDocument;
   global.window = fakeWindow;
-  if (options.today) {
+  if (clockTime !== null) {
     global.Date = class FakeDate extends originalDate {
       constructor(...args) { super(...(args.length ? args : [clockTime])); }
       static now() { return clockTime; }
@@ -391,6 +404,72 @@ async function withFakePage(options, assertion) {
     await page.restore();
   }
 }
+
+test('registration deadline switches at 22:00 Beijing time without reloading', async () => {
+  const apply = createFakeElement({ dataset: { milestoneId: 'apply' } });
+  await withFakePage({ at: '2026-10-24T21:59:30+08:00', includeLiveConsole: false, milestones: [apply] }, async page => {
+    assert.equal(page.elements.deadline.hidden, false);
+    assert.equal(page.elements.deadline.dataset.state, 'urgent');
+    assert.equal(page.elements.deadlineTime.getAttribute('datetime'), '2026-10-24T22:00:00+08:00');
+    assert.match(page.elements.deadlineCountdown.textContent, /1 分钟/);
+    assert.equal(apply.getAttribute('aria-current'), 'step');
+    page.advanceTime(30_000);
+    assert.equal(page.elements.deadline.dataset.state, 'closed');
+    assert.match(page.elements.deadlineStatus.textContent, /已截止/);
+    assert.doesNotMatch(page.elements.stageName.textContent, /全国网上报名/);
+    assert.equal(apply.getAttribute('aria-current'), null);
+    assert.equal(page.fetchCalls.length, 0);
+  });
+});
+
+test('4603 noon cutoff ends supplementation but keeps the review phase and its scope', async () => {
+  const checkbox = createFakeElement({ dataset: { checkId: 'stage-confirm' } });
+  await withFakePage({ at: '2026-10-31T11:59:59+08:00', includeLiveConsole: false, checkboxes: [checkbox] }, async page => {
+    assert.equal(page.elements.deadlineTime.getAttribute('datetime'), '2026-10-31T12:00:00+08:00');
+    assert.match(page.elements.deadlineScope.textContent, /仅.*4603/);
+    assert.match(page.elements.deadlineScope.textContent, /其他报考点/);
+    page.advanceTime(1_000);
+    assert.equal(page.elements.deadline.dataset.state, 'closed');
+    assert.match(page.elements.stageName.textContent, /4603 审核（补交已截止）/);
+    assert.equal(checkbox.checked, false);
+    checkbox.checked = true;
+    checkbox.dispatch('change');
+    assert.equal(page.elements.deadline.hidden, true);
+  });
+});
+
+test('pre-registration has a precise cutoff and skipped deadlines stay hidden', async () => {
+  await withFakePage({ at: '2026-10-12T22:00:00+08:00', includeLiveConsole: false }, async page => {
+    assert.equal(page.elements.deadline.dataset.state, 'closed');
+    assert.doesNotMatch(page.elements.stageName.textContent, /网上预报名/);
+  });
+  const storage = { getItem: () => '{"stage-preapply":"na"}' };
+  await withFakePage({ at: '2026-10-12T21:00:00+08:00', includeLiveConsole: false, storage }, async page => {
+    assert.equal(page.elements.deadline.hidden, true);
+  });
+});
+
+test('deadline urgency refreshes as time advances and after background suspension', async () => {
+  await withFakePage({ at: '2026-10-23T21:59:00+08:00', includeLiveConsole: false }, async page => {
+    assert.equal(page.elements.deadline.dataset.state, 'upcoming');
+    page.advanceTime(60_000);
+    assert.equal(page.elements.deadline.dataset.state, 'urgent');
+    assert.match(page.elements.deadlineCountdown.textContent, /24 小时/);
+    page.document.visibilityState = 'hidden';
+    page.document.dispatch('visibilitychange');
+    page.advanceTime(24 * 60 * 60 * 1000);
+    page.document.visibilityState = 'visible';
+    page.document.dispatch('visibilitychange');
+    assert.equal(page.elements.deadline.dataset.state, 'closed');
+  });
+});
+
+test('stage dates use Beijing time even when the supplied instant is on the previous UTC date', () => {
+  const { getTimelineState } = loadApp();
+  const milestones = [{ id: 'apply', start: '2026-10-15', end: '2026-10-24', endsAt: '2026-10-24T22:00:00+08:00' }];
+  assert.equal(getTimelineState(milestones, new Date('2026-10-14T16:00:00Z')).activeId, 'apply');
+  assert.equal(getTimelineState(milestones, new Date('2026-10-24T14:00:00Z')).activeId, null);
+});
 
 test('updates the stage and countdown across consecutive midnights without a notice service', async () => {
   const preapply = createFakeElement({ dataset: { milestoneId: 'preapply' } });

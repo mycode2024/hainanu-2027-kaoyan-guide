@@ -47,10 +47,16 @@
 
       <aside class="status-panel" aria-label="当前进度仪表盘">
         <div class="status-panel-head">
-          <span class="status-kicker">NOW / 当前航段</span>
+          <span class="status-kicker">TODAY / 今天要做什么</span>
           <span class="tag tag-confirmed">动态定位</span>
         </div>
         <h2 id="current-stage-name">招生目录与报考资格核对</h2>
+        <div class="deadline-notice" id="current-deadline" hidden>
+          <div class="deadline-heading"><span id="current-deadline-status" role="status"></span><strong id="current-deadline-title"></strong></div>
+          <time id="current-deadline-time"></time>
+          <strong class="deadline-countdown" id="current-deadline-countdown"></strong>
+          <p id="current-deadline-scope"></p>
+        </div>
         <p id="current-stage-detail">逐字段核对专业、院系、科目、备注与计划</p>
         <p class="stage-actions"><a href="/timeline.html#timeline">查看当前任务与审核清单 →</a></p>
         <div class="status-next">

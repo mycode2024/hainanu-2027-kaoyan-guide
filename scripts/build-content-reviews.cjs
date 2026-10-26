@@ -7,7 +7,7 @@ const reviews = {
 };
 const pageReviews = {
   index: ['national', 'registration', 'directory', 'baseline'],
-  programs: ['directory', 'baseline'],
+  programs: ['directory', 'recommendation', 'baseline'],
   scores: ['scores'],
   preparation: ['national', 'directory', 'baseline'],
   timeline: ['national', 'registration', 'directory', 'baseline'],
