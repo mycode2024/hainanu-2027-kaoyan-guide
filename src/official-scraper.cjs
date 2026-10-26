@@ -168,7 +168,7 @@ function getShanghaiYearAndMonth(checkedAt) {
   return Number.isFinite(year) && Number.isFinite(month) ? { year, month, day } : null;
 }
 
-function readHtmlTag(source, start) {
+function readHtmlTagHead(source, start) {
   if (source[start] !== '<') return null;
   let index = start + 1;
   let closing = false;
@@ -182,12 +182,16 @@ function readHtmlTag(source, start) {
 
   const nameStart = index;
   while (/[A-Za-z0-9:-]/.test(source[index] || '')) index += 1;
-  const name = source.slice(nameStart, index).toLowerCase();
-  const attributesStart = index;
+  return { name: source.slice(nameStart, index).toLowerCase(), closing, attributesStart: index };
+}
+
+// Scans attributes from the end of the tag name; returns the index of the closing > plus
+// whether a slash immediately preceded it as a self-closing marker.
+function findHtmlTagEnd(source, attributesStart) {
   let quote = null;
   let valueState = null;
   let slashAtBoundary = false;
-  for (; index < source.length; index += 1) {
+  for (let index = attributesStart; index < source.length; index += 1) {
     const character = source[index];
     if (quote) {
       if (character === quote) {
@@ -203,13 +207,7 @@ function readHtmlTag(source, start) {
       continue;
     }
     if (character === '>') {
-      return {
-        name,
-        closing,
-        attributesStart,
-        selfClosing: !closing && source[index - 1] === '/' && slashAtBoundary,
-        end: index + 1
-      };
+      return { end: index + 1, selfClosingSlash: source[index - 1] === '/' && slashAtBoundary };
     }
     if (/\s/.test(character)) {
       if (valueState === 'unquoted') valueState = null;
@@ -222,6 +220,20 @@ function readHtmlTag(source, start) {
     if (character === '/') slashAtBoundary = valueState !== 'unquoted';
   }
   return null;
+}
+
+function readHtmlTag(source, start) {
+  const head = readHtmlTagHead(source, start);
+  if (!head) return null;
+  const tagEnd = findHtmlTagEnd(source, head.attributesStart);
+  if (!tagEnd) return null;
+  return {
+    name: head.name,
+    closing: head.closing,
+    attributesStart: head.attributesStart,
+    selfClosing: !head.closing && tagEnd.selfClosingSlash,
+    end: tagEnd.end
+  };
 }
 
 function* scanHtmlTags(source) {
@@ -407,9 +419,9 @@ function findPublicationLabels(content) {
     .map(label => ({ 0: label.content, index: label.start }));
 }
 
-function extractPublicationDate(visibleContent, checkedDate) {
-  // Expose machine-readable publication dates to the same ordered date scan.
-  // Keep the publisher's calendar day rather than converting it through UTC.
+// Expose machine-readable publication dates to the same ordered date scan.
+// Keep the publisher's calendar day rather than converting it through UTC.
+function inlineTimeElementDates(visibleContent) {
   const parts = [];
   let cursor = 0;
   for (const tag of scanHtmlTags(visibleContent)) {
@@ -422,19 +434,63 @@ function extractPublicationDate(visibleContent, checkedDate) {
     cursor = tag.end;
   }
   parts.push(visibleContent.slice(cursor));
-  // Link text may contain an exam/deadline date; it is not a publication label.
-  // Clickable cards can still contain explicit time/date elements.
-  const datedContent = parts.join('');
-  const publicationParts = [];
-  cursor = 0;
+  return parts.join('');
+}
+
+// Link text may contain an exam/deadline date; it is not a publication label.
+// Clickable cards can still contain explicit time/date elements.
+function replaceLinksWithPublicationLabels(datedContent) {
+  const parts = [];
+  let cursor = 0;
   for (const link of findBalancedElements(datedContent, 'a').sort((a, b) => a.start - b.start)) {
     if (link.start < cursor) continue;
-    publicationParts.push(datedContent.slice(cursor, link.start), ' ',
+    parts.push(datedContent.slice(cursor, link.start), ' ',
       findPublicationLabels(link.content).map(label => label[0]).join(' '), ' ');
     cursor = link.end;
   }
-  publicationParts.push(datedContent.slice(cursor));
-  const publicationContent = publicationParts.join('');
+  parts.push(datedContent.slice(cursor));
+  return parts.join('');
+}
+
+function collectFullDateCandidates(visibleText) {
+  return [...visibleText.matchAll(/\b(20\d{2})-((?:0[1-9]|1[0-2]))-((?:0[1-9]|[12]\d|3[01]))\b/g)].map((match) => ({
+    index: match.index,
+    year: Number(match[1]),
+    month: Number(match[2]),
+    day: Number(match[3]),
+    value: `${match[1]}-${match[2]}-${match[3]}`,
+    inferred: false
+  }));
+}
+
+function collectShortDateCandidates(shortDateTexts, checkedDate) {
+  const candidates = [];
+  for (const [priority, text] of shortDateTexts.entries()) {
+    for (const match of text.matchAll(/\[\s*((?:0[1-9]|1[0-2]))-((?:0[1-9]|[12]\d|3[01]))\s*\]/g)) {
+      const month = Number(match[1]);
+      const day = Number(match[2]);
+      let year = checkedDate.year - (month > checkedDate.month ? 1 : 0);
+      // Keep leap-day labels eligible for article verification even when
+      // the guessed year is not a leap year. This date remains inferred.
+      if (month === 2 && day === 29) {
+        while (!isValidCalendarDate(year, month, day)) year -= 1;
+      }
+      candidates.push({
+        priority,
+        index: match.index,
+        year,
+        month,
+        day,
+        value: `${year}-${match[1]}-${match[2]}`,
+        inferred: true
+      });
+    }
+  }
+  return candidates;
+}
+
+function extractPublicationDate(visibleContent, checkedDate) {
+  const publicationContent = replaceLinksWithPublicationLabels(inlineTimeElementDates(visibleContent));
   const labels = findPublicationLabels(publicationContent);
   // Explicit publication labels take precedence over dates in summaries.
   // An invalid label must not fall back to an unrelated full deadline date.
@@ -442,42 +498,11 @@ function extractPublicationDate(visibleContent, checkedDate) {
   const visibleText = cleanText(labels.length
     ? labels.map(label => label[0]).join(' ')
     : publicationContent);
-  const dateCandidates = [];
-
-  for (const match of visibleText.matchAll(/\b(20\d{2})-((?:0[1-9]|1[0-2]))-((?:0[1-9]|[12]\d|3[01]))\b/g)) {
-    dateCandidates.push({
-      index: match.index,
-      year: Number(match[1]),
-      month: Number(match[2]),
-      day: Number(match[3]),
-      value: `${match[1]}-${match[2]}-${match[3]}`,
-      inferred: false
-    });
-  }
+  const dateCandidates = collectFullDateCandidates(visibleText);
 
   if (checkedDate) {
     const shortDateTexts = [visibleText, ...(labels.length ? [cleanText(publicationContent)] : [])];
-    for (const [priority, text] of shortDateTexts.entries()) {
-      for (const match of text.matchAll(/\[\s*((?:0[1-9]|1[0-2]))-((?:0[1-9]|[12]\d|3[01]))\s*\]/g)) {
-        const month = Number(match[1]);
-        const day = Number(match[2]);
-        let year = checkedDate.year - (month > checkedDate.month ? 1 : 0);
-        // Keep leap-day labels eligible for article verification even when
-        // the guessed year is not a leap year. This date remains inferred.
-        if (month === 2 && day === 29) {
-          while (!isValidCalendarDate(year, month, day)) year -= 1;
-        }
-        dateCandidates.push({
-          priority,
-          index: match.index,
-          year,
-          month,
-          day,
-          value: `${year}-${match[1]}-${match[2]}`,
-          inferred: true
-        });
-      }
-    }
+    dateCandidates.push(...collectShortDateCandidates(shortDateTexts, checkedDate));
   }
 
   const date = dateCandidates
@@ -675,6 +700,45 @@ function extractAnnouncementCards(html, calendar, source, documentUrl) {
   return cards.reverse().filter(card => card.date);
 }
 
+// Returns the notice for one extracted card, or null when it is not a relevant,
+// resolvable and trusted official link.
+function buildUpdateFromCandidate(candidate, source, documentUrl, checkedAt, calendar) {
+  // Keep placeholder anchors during card extraction to preserve boundaries,
+  // but never turn an empty or same-page fragment link into a notice URL.
+  const href = decodeHtmlEntities(candidate.anchor.href).trim();
+  if (!href || href.startsWith('#')) return null;
+  const title = extractAnchorTitle(candidate.anchor.titleHtml);
+  if (!isRelevantTitle(title, source)) return null;
+  // A guessed year must not discard a notice before the article is checked.
+  if (!isRelevantAdmissionCycle(title, candidate.dateInferred ? null : candidate.date, checkedAt, calendar)) return null;
+
+  let url;
+  try {
+    // Resolve against the fetched page while keeping source identity and trust rules.
+    const resolvedUrl = new URL(href, documentUrl);
+    resolvedUrl.hash = '';
+    url = resolvedUrl.href;
+  } catch {
+    return null;
+  }
+  if (!isAllowedOfficialUrl(url, source)) return null;
+
+  const category = categorizeTitle(title, source);
+  return {
+    id: makeId(source, url),
+    contentHash: makeContentHash(title, category, candidate.date),
+    title,
+    date: candidate.date,
+    ...(candidate.dateInferred ? { dateInferred: true } : {}),
+    url,
+    source: source.name,
+    sourceId: source.id,
+    category,
+    isTarget2027: /2027/.test(title),
+    isImportant: source.context === 'national-policy' || /招生简章|招生章程|专业目录|初试科目|考试科目|考试大纲|网上报名|预报名|报名公告|准考资格|复试|调剂/.test(title)
+  };
+}
+
 function parseOfficialDocument(html, source, checkedAt = new Date().toISOString(), documentUrl = source?.url) {
   const calendar = getShanghaiYearAndMonth(checkedAt);
   const candidates = extractAnnouncementCards(html, calendar, source, documentUrl);
@@ -686,46 +750,9 @@ function parseOfficialDocument(html, source, checkedAt = new Date().toISOString(
   if (!source || !isAllowedOfficialUrl(source.url, source)) return { updates: [], diagnostics };
 
   const updatesById = new Map();
-
   for (const candidate of candidates) {
-    // Keep placeholder anchors during card extraction to preserve boundaries,
-    // but never turn an empty or same-page fragment link into a notice URL.
-    const href = decodeHtmlEntities(candidate.anchor.href).trim();
-    if (!href || href.startsWith('#')) continue;
-    const title = extractAnchorTitle(candidate.anchor.titleHtml);
-    if (!isRelevantTitle(title, source)) continue;
-    // A guessed year must not discard a notice before the article is checked.
-    if (!isRelevantAdmissionCycle(title, candidate.dateInferred ? null : candidate.date, checkedAt, calendar)) continue;
-
-    let url;
-    try {
-      // Resolve against the fetched page while keeping source identity and trust rules.
-      const resolvedUrl = new URL(href, documentUrl);
-      resolvedUrl.hash = '';
-      url = resolvedUrl.href;
-    } catch {
-      continue;
-    }
-    if (!isAllowedOfficialUrl(url, source)) continue;
-
-    const category = categorizeTitle(title, source);
-    const isTarget2027 = /2027/.test(title);
-    const isImportant = source.context === 'national-policy' || /招生简章|招生章程|专业目录|初试科目|考试科目|考试大纲|网上报名|预报名|报名公告|准考资格|复试|调剂/.test(title);
-
-    const update = {
-      id: makeId(source, url),
-      contentHash: makeContentHash(title, category, candidate.date),
-      title,
-      date: candidate.date,
-      ...(candidate.dateInferred ? { dateInferred: true } : {}),
-      url,
-      source: source.name,
-      sourceId: source.id,
-      category,
-      isTarget2027,
-      isImportant
-    };
-    if (!updatesById.has(update.id)) updatesById.set(update.id, update);
+    const update = buildUpdateFromCandidate(candidate, source, documentUrl, checkedAt, calendar);
+    if (update && !updatesById.has(update.id)) updatesById.set(update.id, update);
   }
 
   const updates = [...updatesById.values()];

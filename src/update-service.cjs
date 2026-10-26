@@ -90,65 +90,92 @@ function isStaleAdmissionUpdate(update, referenceDate) {
   return !isRelevantAdmissionCycle(update?.title || '', update?.date, referenceDate);
 }
 
-function sanitizeCachedSnapshot(value, sources, refreshIntervalMs, date) {
-  if (!value || typeof value !== 'object' || !Array.isArray(value.updates)) return null;
-  const seed = makeSeedSnapshot(sources, refreshIntervalMs, date);
+function trimmedString(value) {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function sanitizeCachedUpdate(update, seedFetchedAt, cacheSuccessTime) {
+  const publicationDate = trimmedString(update.date);
+  const publicationFallback = isValidPublicationDate(publicationDate)
+    ? `${publicationDate}T00:00:00.000Z`
+    : seedFetchedAt;
+  return {
+    id: trimmedString(update.id),
+    contentHash: trimmedString(update.contentHash),
+    title: trimmedString(update.title),
+    date: publicationDate,
+    dateVerified: update.dateVerified === true,
+    url: trimmedString(update.url),
+    source: trimmedString(update.source),
+    sourceId: trimmedString(update.sourceId),
+    category: trimmedString(update.category) || '招生动态',
+    isTarget2027: update.isTarget2027 === true,
+    isImportant: update.isImportant === true,
+    discoveredAt: isValidIsoDate(update.discoveredAt) ? update.discoveredAt : cacheSuccessTime || publicationFallback,
+    lastSeenAt: isValidIsoDate(update.lastSeenAt) ? update.lastSeenAt : null,
+    updatedAt: isValidIsoDate(update.updatedAt) ? update.updatedAt : null,
+    missingSince: isValidIsoDate(update.missingSince) ? update.missingSince : null,
+    missCount: Number.isInteger(update.missCount) && update.missCount > 0 ? update.missCount : 0
+  };
+}
+
+function sanitizeCachedUpdates(value, sources, seed, cacheSuccessTime) {
   const todayInShanghai = getShanghaiDate(seed.fetchedAt);
   const allowedSourceIds = new Set(sources.map((source) => source.id));
   const sourceById = new Map(sources.map((source) => [source.id, source]));
-  const cacheSuccessTime = isValidIsoDate(value.lastAnySuccessAt)
-    ? value.lastAnySuccessAt
-    : isValidIsoDate(value.lastSuccessAt) ? value.lastSuccessAt : null;
-  const updates = value.updates
+  return value.updates
     .filter((update) => update && typeof update === 'object')
     // Legacy homepage cache guessed years from MM-DD; do not serve it as trusted history.
     .filter((update) => sourceById.get(update.sourceId)?.context !== 'hnu-home' || update.dateVerified === true)
-    .map((update) => {
-      const publicationDate = typeof update.date === 'string' ? update.date.trim() : '';
-      const publicationFallback = isValidPublicationDate(publicationDate)
-        ? `${publicationDate}T00:00:00.000Z`
-        : seed.fetchedAt;
-      return {
-        id: typeof update.id === 'string' ? update.id.trim() : '',
-        contentHash: typeof update.contentHash === 'string' ? update.contentHash.trim() : '',
-        title: typeof update.title === 'string' ? update.title.trim() : '',
-        date: publicationDate,
-        dateVerified: update.dateVerified === true,
-        url: typeof update.url === 'string' ? update.url.trim() : '',
-        source: typeof update.source === 'string' ? update.source.trim() : '',
-        sourceId: typeof update.sourceId === 'string' ? update.sourceId.trim() : '',
-        category: typeof update.category === 'string' && update.category.trim() ? update.category.trim() : '招生动态',
-        isTarget2027: update.isTarget2027 === true,
-        isImportant: update.isImportant === true,
-        discoveredAt: isValidIsoDate(update.discoveredAt) ? update.discoveredAt : cacheSuccessTime || publicationFallback,
-        lastSeenAt: isValidIsoDate(update.lastSeenAt) ? update.lastSeenAt : null,
-        updatedAt: isValidIsoDate(update.updatedAt) ? update.updatedAt : null,
-        missingSince: isValidIsoDate(update.missingSince) ? update.missingSince : null,
-        missCount: Number.isInteger(update.missCount) && update.missCount > 0 ? update.missCount : 0
-      };
-    })
+    .map((update) => sanitizeCachedUpdate(update, seed.fetchedAt, cacheSuccessTime))
     .filter((update) => (
       update.id && update.title && isValidPublicationDate(update.date) && update.date <= todayInShanghai &&
       update.source && allowedSourceIds.has(update.sourceId) &&
       isAllowedOfficialUrl(update.url, sourceById.get(update.sourceId)) &&
       !isStaleAdmissionUpdate(update, seed.fetchedAt)
     ));
+}
 
+// Restoring a cache must not reset its age. Bound legacy or corrupt deadlines
+// by the configured interval after the last known attempt, not startup time.
+function inferCachedNextRefreshAt(value, cacheSuccessTime, seedFetchedAt, refreshIntervalMs) {
+  const lastCheckedAt = [value.lastAttemptAt, value.fetchedAt, cacheSuccessTime].find(isValidIsoDate);
+  const nowMs = Date.parse(seedFetchedAt);
+  const lastCheckedMs = Date.parse(lastCheckedAt);
+  const inferredDeadline = Number.isFinite(lastCheckedMs) && lastCheckedMs <= nowMs
+    ? lastCheckedMs + refreshIntervalMs : nowMs;
+  return new Date(Math.min(inferredDeadline,
+    isValidIsoDate(value.nextRefreshAt) ? Date.parse(value.nextRefreshAt) : inferredDeadline)).toISOString();
+}
+
+function sanitizeCachedSources(value, seedSources) {
+  const allowedSourceIds = new Set(seedSources.map((source) => source.id));
   const cachedSourceById = new Map(
     (Array.isArray(value.sources) ? value.sources : [])
       .filter((source) => source && allowedSourceIds.has(source.id))
       .map((source) => [source.id, source])
   );
+  return seedSources.map((source) => {
+    const cached = cachedSourceById.get(source.id);
+    const diagnostics = sanitizeParserDiagnostics(cached?.diagnostics);
+    const lastTrustedDiagnostics = sanitizeParserDiagnostics(cached?.lastTrustedDiagnostics) || diagnostics;
+    return {
+      ...source,
+      lastSuccessAt: isValidIsoDate(cached?.lastSuccessAt) ? cached.lastSuccessAt : null,
+      parserVersion: Number.isInteger(cached?.parserVersion) && cached.parserVersion > 0 ? cached.parserVersion : null,
+      diagnostics,
+      lastTrustedDiagnostics
+    };
+  });
+}
 
-  // Restoring a cache must not reset its age. Bound legacy or corrupt deadlines
-  // by the configured interval after the last known attempt, not startup time.
-  const lastCheckedAt = [value.lastAttemptAt, value.fetchedAt, cacheSuccessTime].find(isValidIsoDate);
-  const nowMs = Date.parse(seed.fetchedAt);
-  const lastCheckedMs = Date.parse(lastCheckedAt);
-  const inferredDeadline = Number.isFinite(lastCheckedMs) && lastCheckedMs <= nowMs
-    ? lastCheckedMs + refreshIntervalMs : nowMs;
-  const nextRefreshAt = new Date(Math.min(inferredDeadline,
-    isValidIsoDate(value.nextRefreshAt) ? Date.parse(value.nextRefreshAt) : inferredDeadline)).toISOString();
+function sanitizeCachedSnapshot(value, sources, refreshIntervalMs, date) {
+  if (!value || typeof value !== 'object' || !Array.isArray(value.updates)) return null;
+  const seed = makeSeedSnapshot(sources, refreshIntervalMs, date);
+  const cacheSuccessTime = isValidIsoDate(value.lastAnySuccessAt)
+    ? value.lastAnySuccessAt
+    : isValidIsoDate(value.lastSuccessAt) ? value.lastSuccessAt : null;
+  const updates = sanitizeCachedUpdates(value, sources, seed, cacheSuccessTime);
 
   return {
     ...seed,
@@ -158,19 +185,8 @@ function sanitizeCachedSnapshot(value, sources, refreshIntervalMs, date) {
     lastAnySuccessAt: cacheSuccessTime,
     lastAllSuccessAt: isValidIsoDate(value.lastAllSuccessAt) ? value.lastAllSuccessAt : null,
     lastSuccessAt: cacheSuccessTime,
-    nextRefreshAt,
-    sources: seed.sources.map((source) => {
-      const cached = cachedSourceById.get(source.id);
-      const diagnostics = sanitizeParserDiagnostics(cached?.diagnostics);
-      const lastTrustedDiagnostics = sanitizeParserDiagnostics(cached?.lastTrustedDiagnostics) || diagnostics;
-      return {
-        ...source,
-        lastSuccessAt: isValidIsoDate(cached?.lastSuccessAt) ? cached.lastSuccessAt : null,
-        parserVersion: Number.isInteger(cached?.parserVersion) && cached.parserVersion > 0 ? cached.parserVersion : null,
-        diagnostics,
-        lastTrustedDiagnostics
-      };
-    }),
+    nextRefreshAt: inferCachedNextRefreshAt(value, cacheSuccessTime, seed.fetchedAt, refreshIntervalMs),
+    sources: sanitizeCachedSources(value, seed.sources),
     updates: rankUpdates(updates, MAX_SNAPSHOT_UPDATES),
     change: {
       newCount: 0,
@@ -181,6 +197,135 @@ function sanitizeCachedSnapshot(value, sources, refreshIntervalMs, date) {
     },
     error: typeof value.error === 'string' && value.error.trim() ? value.error.trim().slice(0, 240) : null
   };
+}
+
+function buildHttpError(response, checkedAt, retryDelayMs) {
+  const error = new Error(`HTTP ${response?.status || 'unknown'}`);
+  error.retryable = response?.status === 408 || response?.status === 429 || response?.status >= 500;
+  if (response?.status === 429) {
+    const retryAfter = response.headers?.get?.('retry-after');
+    const hasRetryAfter = typeof retryAfter === 'string' && retryAfter.trim() !== '';
+    const seconds = hasRetryAfter ? Number(retryAfter) : Number.NaN;
+    const requestedDelay = !hasRetryAfter
+      ? retryDelayMs
+      : Number.isFinite(seconds)
+        ? seconds * 1000
+        : Math.max(0, Date.parse(retryAfter) - Date.parse(checkedAt));
+    error.retryAfterMs = Math.min(10_000, Math.max(0, Number.isFinite(requestedDelay) ? requestedDelay : retryDelayMs));
+  }
+  return error;
+}
+
+// Follows only redirects that stay on the source's official domains.
+async function fetchFollowingOfficialRedirects(requestedUrl, source, fetchImpl, signal) {
+  let response;
+  for (let redirectCount = 0; redirectCount <= MAX_REDIRECTS; redirectCount += 1) {
+    response = await fetchImpl(requestedUrl, {
+      method: 'GET',
+      headers: {
+        accept: 'text/html,application/xhtml+xml',
+        'user-agent': 'HNU-2027-Kaoyan-Guide/1.0 (+local official-notice monitor)'
+      },
+      redirect: 'manual',
+      signal
+    });
+
+    if (response?.status >= 300 && response.status < 400) {
+      const location = response.headers?.get?.('location');
+      if (!location) throw new Error('官网返回了无地址的重定向');
+      const redirectedUrl = new URL(location, requestedUrl).href;
+      if (!isAllowedOfficialUrl(redirectedUrl, source)) throw new Error('官网重定向指向非官方域名，已拒绝');
+      if (redirectCount === MAX_REDIRECTS) throw new Error('官网重定向次数过多');
+      requestedUrl = redirectedUrl;
+      continue;
+    }
+    break;
+  }
+  return { response, requestedUrl };
+}
+
+function assertOfficialHtmlResponse(response, source) {
+  if (response.url && !isAllowedOfficialUrl(response.url, source)) {
+    throw new Error('响应来自非官方域名，已拒绝');
+  }
+  const contentType = response.headers?.get?.('content-type') || '';
+  if (contentType && !/text\/html|application\/xhtml\+xml/i.test(contentType)) {
+    throw new Error('官网返回的不是 HTML 页面');
+  }
+  const declaredLength = Number(response.headers?.get?.('content-length'));
+  if (Number.isFinite(declaredLength) && declaredLength > MAX_HTML_LENGTH) throw new Error('官网响应过大，已停止读取');
+}
+
+async function readBoundedHtmlBody(response) {
+  if (response.body && typeof response.body.getReader === 'function') {
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder('utf-8');
+    let bytesRead = 0;
+    let decoded = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      bytesRead += value.byteLength;
+      if (bytesRead > MAX_HTML_LENGTH) {
+        await reader.cancel().catch(() => {});
+        throw new Error('官网响应过大，已停止读取');
+      }
+      decoded += decoder.decode(value, { stream: true });
+    }
+    return decoded + decoder.decode();
+  }
+  const html = await response.text();
+  if (Buffer.byteLength(html, 'utf8') > MAX_HTML_LENGTH) throw new Error('官网响应过大，已停止读取');
+  return html;
+}
+
+async function fetchOfficialHtml({ url, source, fetchImpl, signal, checkedAt, retryDelayMs }) {
+  const { response, requestedUrl } = await fetchFollowingOfficialRedirects(url, source, fetchImpl, signal);
+  if (!response || !response.ok) throw buildHttpError(response, checkedAt, retryDelayMs);
+  assertOfficialHtmlResponse(response, source);
+  return { html: await readBoundedHtmlBody(response), url: response.url || requestedUrl };
+}
+
+function buildDegradedResult({ count, diagnostics, error, retryable }) {
+  return { ok: false, updates: [], count, diagnostics, error, retryable, degraded: true };
+}
+
+function buildNoNoticesError(diagnostics) {
+  const error = new Error('未识别到招生通知，可能是官网页面结构已变化');
+  error.retryable = true;
+  error.diagnostics = diagnostics;
+  return error;
+}
+
+// Confirms every update's publication year against its article (up to four requests in
+// parallel) and drops verified updates that fall outside the current admission cycle.
+async function verifyUpdatePublicationDates(updates, readOfficialHtml, checkedAt) {
+  const todayInShanghai = getShanghaiDate(checkedAt);
+  const verifyPublicationDate = (update) => {
+    if (update.date > todayInShanghai) throw new Error('通知发布日期晚于当前日期，已保留上次可信缓存');
+    update.dateVerified = true;
+  };
+  const pending = updates.filter((update) => update.dateInferred);
+  updates.filter((update) => !update.dateInferred).forEach(verifyPublicationDate);
+  let pendingIndex = 0;
+  const verifications = await Promise.allSettled(Array.from({ length: Math.min(4, pending.length) }, async () => {
+    while (pendingIndex < pending.length) {
+      const update = pending[pendingIndex++];
+      const article = await readOfficialHtml(update.url);
+      const date = parseOfficialPublicationDate(article.html);
+      if (!date) throw new Error('无法核实通知原文的发布年份，已保留上次可信缓存');
+      update.date = date;
+      verifyPublicationDate(update);
+      delete update.dateInferred;
+      update.contentHash = makeContentHash(update.title, update.category, date);
+    }
+  }));
+  const failedVerification = verifications.find((result) => result.status === 'rejected');
+  if (failedVerification) throw failedVerification.reason;
+  // Apply the same age rules to verified article dates as to dated lists.
+  const inferredIds = new Set(pending.map((update) => update.id));
+  return updates.filter((update) => !inferredIds.has(update.id)
+    || isRelevantAdmissionCycle(update.title, update.date, checkedAt));
 }
 
 function getSourceFreshness(lastSuccessAt, currentDate, refreshIntervalMs) {
@@ -481,157 +626,36 @@ function createUpdateService(options = {}) {
     timer.unref?.();
 
     try {
-      async function readOfficialHtml(requestedUrl) {
-        let response;
-        for (let redirectCount = 0; redirectCount <= MAX_REDIRECTS; redirectCount += 1) {
-          response = await fetchImpl(requestedUrl, {
-            method: 'GET',
-            headers: {
-              accept: 'text/html,application/xhtml+xml',
-              'user-agent': 'HNU-2027-Kaoyan-Guide/1.0 (+local official-notice monitor)'
-            },
-            redirect: 'manual',
-            signal: controller.signal
-          });
-
-          if (response?.status >= 300 && response.status < 400) {
-            const location = response.headers?.get?.('location');
-            if (!location) throw new Error('官网返回了无地址的重定向');
-            const redirectedUrl = new URL(location, requestedUrl).href;
-            if (!isAllowedOfficialUrl(redirectedUrl, source)) throw new Error('官网重定向指向非官方域名，已拒绝');
-            if (redirectCount === MAX_REDIRECTS) throw new Error('官网重定向次数过多');
-            requestedUrl = redirectedUrl;
-            continue;
-          }
-          break;
-        }
-
-        if (!response || !response.ok) {
-          const error = new Error(`HTTP ${response?.status || 'unknown'}`);
-          error.retryable = response?.status === 408 || response?.status === 429 || response?.status >= 500;
-          if (response?.status === 429) {
-            const retryAfter = response.headers?.get?.('retry-after');
-            const hasRetryAfter = typeof retryAfter === 'string' && retryAfter.trim() !== '';
-            const seconds = hasRetryAfter ? Number(retryAfter) : Number.NaN;
-            const requestedDelay = !hasRetryAfter
-              ? retryDelayMs
-              : Number.isFinite(seconds)
-                ? seconds * 1000
-                : Math.max(0, Date.parse(retryAfter) - Date.parse(checkedAt));
-            error.retryAfterMs = Math.min(10_000, Math.max(0, Number.isFinite(requestedDelay) ? requestedDelay : retryDelayMs));
-          }
-          throw error;
-        }
-        if (response.url && !isAllowedOfficialUrl(response.url, source)) {
-          throw new Error('响应来自非官方域名，已拒绝');
-        }
-        const contentType = response.headers?.get?.('content-type') || '';
-        if (contentType && !/text\/html|application\/xhtml\+xml/i.test(contentType)) {
-          throw new Error('官网返回的不是 HTML 页面');
-        }
-        const declaredLength = Number(response.headers?.get?.('content-length'));
-        if (Number.isFinite(declaredLength) && declaredLength > MAX_HTML_LENGTH) throw new Error('官网响应过大，已停止读取');
-
-        let html;
-        if (response.body && typeof response.body.getReader === 'function') {
-          const reader = response.body.getReader();
-          const decoder = new TextDecoder('utf-8');
-          let bytesRead = 0;
-          let decoded = '';
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            bytesRead += value.byteLength;
-            if (bytesRead > MAX_HTML_LENGTH) {
-              await reader.cancel().catch(() => {});
-              throw new Error('官网响应过大，已停止读取');
-            }
-            decoded += decoder.decode(value, { stream: true });
-          }
-          html = decoded + decoder.decode();
-        } else {
-          html = await response.text();
-          if (Buffer.byteLength(html, 'utf8') > MAX_HTML_LENGTH) throw new Error('官网响应过大，已停止读取');
-        }
-        return { html, url: response.url || requestedUrl };
-      }
+      const readOfficialHtml = (url) => fetchOfficialHtml({
+        url, source, fetchImpl, signal: controller.signal, checkedAt, retryDelayMs
+      });
       const page = await readOfficialHtml(source.url);
       const parsed = parseDocument(page.html, source, checkedAt, page.url);
       let updates = Array.isArray(parsed?.updates) ? parsed.updates : null;
       attemptedDiagnostics = sanitizeParserDiagnostics(parsed?.diagnostics, updates?.length);
       if (!updates || !attemptedDiagnostics) {
-        return {
-          ok: false,
-          updates: [],
+        return buildDegradedResult({
           count: Array.isArray(updates) ? updates.length : 0,
           diagnostics: attemptedDiagnostics,
           error: '解析诊断结构或计数异常，可能是官网页面结构已变化',
-          retryable: true,
-          degraded: true
-        };
+          retryable: true
+        });
       }
-      if (updates.length === 0) {
-        const error = new Error('未识别到招生通知，可能是官网页面结构已变化');
-        error.retryable = true;
-        error.diagnostics = attemptedDiagnostics;
-        throw error;
-      }
-      const todayInShanghai = getShanghaiDate(checkedAt);
-      const verifyPublicationDate = (update) => {
-        if (update.date > todayInShanghai) throw new Error('通知发布日期晚于当前日期，已保留上次可信缓存');
-        update.dateVerified = true;
-      };
-      const pending = updates.filter((update) => update.dateInferred);
-      updates.filter((update) => !update.dateInferred).forEach(verifyPublicationDate);
-      let pendingIndex = 0;
-      const verifications = await Promise.allSettled(Array.from({ length: Math.min(4, pending.length) }, async () => {
-        while (pendingIndex < pending.length) {
-          const update = pending[pendingIndex++];
-          const article = await readOfficialHtml(update.url);
-          const date = parseOfficialPublicationDate(article.html);
-          if (!date) throw new Error('无法核实通知原文的发布年份，已保留上次可信缓存');
-          update.date = date;
-          verifyPublicationDate(update);
-          delete update.dateInferred;
-          update.contentHash = makeContentHash(update.title, update.category, date);
-        }
-      }));
-      const failedVerification = verifications.find((result) => result.status === 'rejected');
-      if (failedVerification) throw failedVerification.reason;
-      // Apply the same age rules to verified article dates as to dated lists.
-      const inferredIds = new Set(pending.map((update) => update.id));
-      updates = updates.filter((update) => !inferredIds.has(update.id)
-        || isRelevantAdmissionCycle(update.title, update.date, checkedAt));
+      if (updates.length === 0) throw buildNoNoticesError(attemptedDiagnostics);
+      updates = await verifyUpdatePublicationDates(updates, readOfficialHtml, checkedAt);
       attemptedDiagnostics = { ...attemptedDiagnostics, relevantCount: updates.length };
-      if (updates.length === 0) {
-        const error = new Error('未识别到招生通知，可能是官网页面结构已变化');
-        error.retryable = true;
-        error.diagnostics = attemptedDiagnostics;
-        throw error;
-      }
+      if (updates.length === 0) throw buildNoNoticesError(attemptedDiagnostics);
       const diagnosticDriftReason = detectDiagnosticDrift(priorDiagnostics, attemptedDiagnostics);
       if (diagnosticDriftReason) {
-        return {
-          ok: false,
-          updates: [],
-          count: updates.length,
-          diagnostics: attemptedDiagnostics,
-          error: diagnosticDriftReason,
-          retryable: false,
-          degraded: true
-        };
+        return buildDegradedResult({
+          count: updates.length, diagnostics: attemptedDiagnostics, error: diagnosticDriftReason, retryable: false
+        });
       }
       const driftReason = detectSuspiciousDrift(priorUpdates, updates, checkedAt);
       if (driftReason) {
-        return {
-          ok: false,
-          updates: [],
-          count: updates.length,
-          diagnostics: attemptedDiagnostics,
-          error: driftReason,
-          retryable: true,
-          degraded: true
-        };
+        return buildDegradedResult({
+          count: updates.length, diagnostics: attemptedDiagnostics, error: driftReason, retryable: true
+        });
       }
       return {
         ok: true,
