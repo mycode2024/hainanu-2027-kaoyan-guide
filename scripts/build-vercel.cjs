@@ -21,7 +21,7 @@ async function build(outputDirectory = path.join(root, 'public')) {
       .replaceAll('本地更新服务', '在线通知服务');
     await fs.writeFile(path.join(outputDirectory, filename), html, 'utf8');
   }
-  for (const filename of ['guide-core.js', 'app.js', 'styles.css']) {
+  for (const filename of ['guide-core.js', 'guide-dom.js', 'guide-notices.js', 'app.js', 'styles.css']) {
     await fs.copyFile(path.join(root, filename), path.join(outputDirectory, filename));
   }
 }

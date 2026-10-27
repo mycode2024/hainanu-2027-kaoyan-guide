@@ -23,6 +23,8 @@ const PUBLIC_FILES = new Map([
   ['/updates.html', 'updates.html'],
   ['/styles.css', 'styles.css'],
   ['/guide-core.js', 'guide-core.js'],
+  ['/guide-dom.js', 'guide-dom.js'],
+  ['/guide-notices.js', 'guide-notices.js'],
   ['/app.js', 'app.js']
 ]);
 
