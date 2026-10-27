@@ -513,6 +513,28 @@
     return { label, isPreviousCycle };
   }
 
+  // Active and next milestones for the given checklist state at `now` (Beijing calendar).
+  function describeCurrentStage(checks, now) {
+    const todayString = getBeijingDateString(now);
+    const reviewCompleted = checks['stage-confirm'] === true;
+    const scheduledMilestones = reviewCompleted
+      ? milestones.filter((milestone) => !milestone.reviewScoped)
+      : milestones;
+    const state = getTimelineState(scheduledMilestones, now);
+    const activeMilestones = state.activeIds
+      .map((id) => milestones.find((milestone) => milestone.id === id))
+      .filter(Boolean)
+      .map(milestone => milestone.deadlineAt && now.getTime() >= Date.parse(milestone.deadlineAt)
+        ? { ...milestone, label: milestone.closedLabel, action: milestone.closedAction }
+        : milestone);
+    // An undated local review deadline must not disappear from the task view.
+    // This reminder does not extend any official submission deadline.
+    const reviewPending = todayString >= '2026-10-09' && !reviewCompleted;
+    if (reviewPending) activeMilestones.push(milestones.find(item => item.id === 'confirm'));
+    const nextMilestone = milestones.find((milestone) => milestone.id === state.nextId);
+    return { scheduledMilestones, state, activeMilestones, nextMilestone, reviewPending };
+  }
+
   return {
     DAY_MS,
     BEIJING_OFFSET_MS,
@@ -542,6 +564,7 @@
     formatLiveDate,
     formatSourceHealthTitle,
     describeSnapshotStatus,
-    describeUpdateCycle
+    describeUpdateCycle,
+    describeCurrentStage
   };
 });

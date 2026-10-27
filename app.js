@@ -30,7 +30,8 @@
     formatLiveDate,
     formatSourceHealthTitle,
     describeSnapshotStatus,
-    describeUpdateCycle
+    describeUpdateCycle,
+    describeCurrentStage
   } = core;
 
   const STORAGE_KEY = 'hainanu-2027-kaoyan-progress-v1';
@@ -1330,50 +1331,122 @@
     });
   }
 
-  function initPage(root = document) {
-    const legacyDestination = root === document && getLegacyPageDestination(window.location.pathname, window.location.hash);
-    if (legacyDestination) {
-      window.location.replace(legacyDestination);
-      return;
+  /**
+   * Checklist progress, current-stage summary and deadline reminder of one rendered root.
+   *
+   * Reads and persists task checkboxes in localStorage (falling back to a per-session
+   * state when storage is blocked), keeps several rendered roots in sync through the
+   * guide-progress-change event, and re-renders the stage summary at every date or
+   * deadline boundary. Created by initPage for the document and for each opened card.
+   */
+  class PageProgress {
+    /**
+     * @param {Document|HTMLElement} root Document or card panel that contains the progress markup.
+     */
+    constructor(root) {
+      this._root = root;
+      this._timelineElements = Array.from(root.querySelectorAll('[data-milestone-id]'));
+      this._deadlinePanel = root.querySelector('#current-deadline');
+      this._checkboxes = Array.from(root.querySelectorAll('.task-check[data-check-id]'));
+      this._skipButtons = Array.from(root.querySelectorAll('[data-skip-check]'));
+      this._progressStorage = null;
+      this._checklistState = {};
+      this._stageRefreshTimer = null;
+      this._loadInitialState();
     }
-    if (root === document) {
-      initSiteNavigation();
-      initHomeReadingOrder();
-    }
-    const timelineElements = Array.from(root.querySelectorAll('[data-milestone-id]'));
-    const deadlinePanel = root.querySelector('#current-deadline');
-    function renderCurrentStage(checks) {
-      const now = new Date();
-      const todayString = getBeijingDateString(now);
-      const reviewCompleted = checks['stage-confirm'] === true;
-      const scheduledMilestones = reviewCompleted
-        ? milestones.filter((milestone) => !milestone.reviewScoped)
-        : milestones;
-      const state = getTimelineState(scheduledMilestones, now);
-      const activeMilestones = state.activeIds
-        .map((id) => milestones.find((milestone) => milestone.id === id))
-        .filter(Boolean)
-        .map(milestone => milestone.deadlineAt && now.getTime() >= Date.parse(milestone.deadlineAt)
-          ? { ...milestone, label: milestone.closedLabel, action: milestone.closedAction }
-          : milestone);
-      // An undated local review deadline must not disappear from the task view.
-      // This reminder does not extend any official submission deadline.
-      const reviewPending = todayString >= '2026-10-09' && !reviewCompleted;
-      if (reviewPending) activeMilestones.push(milestones.find(item => item.id === 'confirm'));
-      const nextMilestone = milestones.find((milestone) => milestone.id === state.nextId);
 
-      timelineElements.forEach((element) => {
+    _loadInitialState() {
+      try {
+        if (sessionProgressOnly) {
+          this._checklistState = mergeChecklistState(sessionChecklistState, {});
+          showSessionStorageWarning(this._root);
+        } else {
+          this._progressStorage = window.localStorage;
+          this._checklistState = readChecks(this._progressStorage, STORAGE_KEY, CHECKLIST_IDS);
+        }
+      } catch {
+        // Some restricted or file origins block access at the property getter.
+        this._useSessionState();
+      }
+    }
+
+    // Switches to the in-memory state after storage became unavailable.
+    _useSessionState() {
+      this._progressStorage = null;
+      sessionProgressOnly = true;
+      this._checklistState = mergeChecklistState(sessionChecklistState, {});
+      showSessionStorageWarning(this._root);
+    }
+
+    /** Binds the controls and listeners, renders once and schedules the next stage refresh. */
+    start() {
+      this._checkboxes.forEach((checkbox) => checkbox.addEventListener('change', () => this._persistChecks({
+        [checkbox.dataset.checkId]: checkbox.checked
+      })));
+      this._skipButtons.forEach((button) => button.addEventListener('click', () => {
+        const id = button.dataset.skipCheck;
+        if (optionalChecklistIds.has(id)) this._persistChecks({ [id]: this._checklistState[id] === 'na' ? false : 'na' });
+      }));
+      this._renderProgress();
+      document.addEventListener('guide-progress-change', (event) => {
+        this._checklistState = mergeChecklistState(event.detail, {});
+        this._renderProgress();
+        this._scheduleStageRefresh();
+      });
+      this._scheduleStageRefresh();
+      this._bindLifecycle();
+      this._bindResetButton();
+    }
+
+    _bindLifecycle() {
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'hidden') this._stopStageRefresh();
+        else this._refreshAndReschedule();
+      });
+      if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+        window.addEventListener('pageshow', () => this._refreshAndReschedule());
+        window.addEventListener('pagehide', () => this._stopStageRefresh());
+        window.addEventListener('storage', (event) => {
+          if (this._progressStorage && event.storageArea === this._progressStorage &&
+              (event.key === STORAGE_KEY || event.key === null)) {
+            this._refreshAndReschedule();
+          }
+        });
+      }
+    }
+
+    _bindResetButton() {
+      const resetButton = this._root.querySelector('#reset-progress');
+      resetButton?.addEventListener('click', () => {
+        const resetAll = resetButton.dataset.resetScope === 'all';
+        const confirmation = resetAll
+          ? '确定清空全部 21 项任务状态（含不适用状态）吗？此操作无法撤销。'
+          : '确定清空本页所有已勾选进度吗？此操作无法撤销。';
+        if (!window.confirm(confirmation)) return;
+        this._checkboxes.forEach((checkbox) => { checkbox.checked = false; });
+        if (resetAll) {
+          this._persistChecks(Object.fromEntries(CHECKLIST_IDS.map((id) => [id, false])));
+          return;
+        }
+        this._persistChecks();
+      });
+    }
+
+    _renderTimelineMarks(activeMilestones) {
+      this._timelineElements.forEach((element) => {
         const isActive = activeMilestones.some(item => item.id === element.dataset.milestoneId);
         element.classList.toggle('is-current', isActive);
         if (isActive) element.setAttribute('aria-current', 'step');
         else element.removeAttribute('aria-current');
       });
+    }
 
-      const stageName = root.querySelector('#current-stage-name');
-      const stageDetail = root.querySelector('#current-stage-detail');
-      const nextName = root.querySelector('#next-stage-name');
-      const nextDays = root.querySelector('#next-stage-days');
-
+    _renderStageSummary(stage) {
+      const { activeMilestones, nextMilestone, reviewPending, state } = stage;
+      const stageName = this._root.querySelector('#current-stage-name');
+      const stageDetail = this._root.querySelector('#current-stage-detail');
+      const nextName = this._root.querySelector('#next-stage-name');
+      const nextDays = this._root.querySelector('#next-stage-days');
       if (stageName) stageName.textContent = activeMilestones.map((milestone) => milestone.label).join(' / ') || '等待下一节点';
       if (stageDetail) {
         stageDetail.textContent = activeMilestones.length
@@ -1391,56 +1464,63 @@
           ? `${nextMilestone?.estimated ? '约 ' : ''}${state.daysToNext} 天`
           : '—';
       }
-      if (deadlinePanel) {
-        const notice = getDeadlineNotice(scheduledMilestones, now, checks);
-        deadlinePanel.hidden = !notice;
-        if (notice) {
-          deadlinePanel.dataset.state = notice.state;
-          const status = root.querySelector('#current-deadline-status');
-          const statusText = { upcoming: '截止提醒', urgent: '即将截止', closed: '已截止' }[notice.state];
-          // Only announce a status change, not each countdown tick.
-          if (status.textContent !== statusText) status.textContent = statusText;
-          root.querySelector('#current-deadline-title').textContent = notice.milestone.deadlineTitle;
-          const time = root.querySelector('#current-deadline-time');
-          time.setAttribute('datetime', notice.at);
-          const [year, month, day] = notice.at.slice(0, 10).split('-');
-          time.textContent = `${year} 年 ${Number(month)} 月 ${Number(day)} 日 ${notice.at.slice(11, 16)}（北京时间）`;
-          root.querySelector('#current-deadline-countdown').textContent = notice.countdown;
-          root.querySelector('#current-deadline-scope').textContent = notice.state === 'closed'
-            ? notice.milestone.deadlineClosedScope || notice.milestone.deadlineScope
-            : notice.milestone.deadlineScope;
-        }
-      }
-    }
-    const checkboxes = Array.from(root.querySelectorAll('.task-check[data-check-id]'));
-    const skipButtons = Array.from(root.querySelectorAll('[data-skip-check]'));
-    let progressStorage = null;
-    let checklistState = {};
-    try {
-      if (sessionProgressOnly) {
-        checklistState = mergeChecklistState(sessionChecklistState, {});
-        showSessionStorageWarning(root);
-      } else {
-        progressStorage = window.localStorage;
-        checklistState = readChecks(progressStorage, STORAGE_KEY, CHECKLIST_IDS);
-      }
-    } catch {
-      // Some restricted or file origins block access at the property getter.
-      progressStorage = null;
-      sessionProgressOnly = true;
-      checklistState = mergeChecklistState(sessionChecklistState, {});
-      showSessionStorageWarning(root);
     }
 
-    function renderProgress() {
-      sessionChecklistState = checklistState;
-      if (sessionProgressOnly) showSessionStorageWarning(root);
-      const { completed, total, percent } = countChecklistProgress(checklistState);
-      renderCurrentStage(checklistState);
-      const bar = root.querySelector('#progress-bar');
-      const text = root.querySelector('#progress-text');
-      const count = root.querySelector('#progress-count');
+    _renderDeadlinePanel(scheduledMilestones, now, checks) {
+      const panel = this._deadlinePanel;
+      if (!panel) return;
+      const root = this._root;
+      const notice = getDeadlineNotice(scheduledMilestones, now, checks);
+      panel.hidden = !notice;
+      if (!notice) return;
+      panel.dataset.state = notice.state;
+      const status = root.querySelector('#current-deadline-status');
+      const statusText = { upcoming: '截止提醒', urgent: '即将截止', closed: '已截止' }[notice.state];
+      // Only announce a status change, not each countdown tick.
+      if (status.textContent !== statusText) status.textContent = statusText;
+      root.querySelector('#current-deadline-title').textContent = notice.milestone.deadlineTitle;
+      const time = root.querySelector('#current-deadline-time');
+      time.setAttribute('datetime', notice.at);
+      const [year, month, day] = notice.at.slice(0, 10).split('-');
+      time.textContent = `${year} 年 ${Number(month)} 月 ${Number(day)} 日 ${notice.at.slice(11, 16)}（北京时间）`;
+      root.querySelector('#current-deadline-countdown').textContent = notice.countdown;
+      root.querySelector('#current-deadline-scope').textContent = notice.state === 'closed'
+        ? notice.milestone.deadlineClosedScope || notice.milestone.deadlineScope
+        : notice.milestone.deadlineScope;
+    }
 
+    _renderCurrentStage(checks) {
+      const now = new Date();
+      const stage = describeCurrentStage(checks, now);
+      this._renderTimelineMarks(stage.activeMilestones);
+      this._renderStageSummary(stage);
+      this._renderDeadlinePanel(stage.scheduledMilestones, now, checks);
+    }
+
+    _renderChecklistControls() {
+      const state = this._checklistState;
+      this._checkboxes.forEach((checkbox) => {
+        const value = state[checkbox.dataset.checkId];
+        checkbox.checked = value === true;
+        checkbox.disabled = value === 'na';
+        checkbox.closest('label')?.setAttribute('data-print-state', value === 'na' ? '不适用' : checkbox.checked ? '已完成' : '未完成');
+      });
+      this._skipButtons.forEach((button) => {
+        const skipped = state[button.dataset.skipCheck] === 'na';
+        button.hidden = false;
+        button.setAttribute('aria-pressed', String(skipped));
+        button.textContent = skipped ? '已设为不适用 · 恢复此项' : '此项不适用';
+      });
+    }
+
+    _renderProgress() {
+      sessionChecklistState = this._checklistState;
+      if (sessionProgressOnly) showSessionStorageWarning(this._root);
+      const { completed, total, percent } = countChecklistProgress(this._checklistState);
+      this._renderCurrentStage(this._checklistState);
+      const bar = this._root.querySelector('#progress-bar');
+      const text = this._root.querySelector('#progress-text');
+      const count = this._root.querySelector('#progress-count');
       if (bar) {
         bar.style.width = `${percent}%`;
         bar.parentElement?.setAttribute('aria-valuenow', String(percent));
@@ -1448,150 +1528,97 @@
       if (text) text.textContent = `${percent}%`;
       const skipped = CHECKLIST_IDS.length - total;
       if (count) count.textContent = `${completed} / ${total} 项${skipped ? `（${skipped} 项不适用）` : ''}`;
-      checkboxes.forEach((checkbox) => {
-        const value = checklistState[checkbox.dataset.checkId];
-        checkbox.checked = value === true;
-        checkbox.disabled = value === 'na';
-        checkbox.closest('label')?.setAttribute('data-print-state', value === 'na' ? '不适用' : checkbox.checked ? '已完成' : '未完成');
-      });
-      skipButtons.forEach((button) => {
-        const skipped = checklistState[button.dataset.skipCheck] === 'na';
-        button.hidden = false;
-        button.setAttribute('aria-pressed', String(skipped));
-        button.textContent = skipped ? '已设为不适用 · 恢复此项' : '此项不适用';
-      });
+      this._renderChecklistControls();
     }
 
-    function persistChecks(pageValues = Object.fromEntries(
-        checkboxes.map((checkbox) => [checkbox.dataset.checkId, checkbox.checked])
-      )) {
-      if (sessionProgressOnly) progressStorage = null;
-      if (!progressStorage) {
-        checklistState = mergeChecklistState(checklistState, pageValues);
+    _readCheckboxValues() {
+      return Object.fromEntries(this._checkboxes.map((checkbox) => [checkbox.dataset.checkId, checkbox.checked]));
+    }
+
+    _persistChecks(pageValues = this._readCheckboxValues()) {
+      if (sessionProgressOnly) this._progressStorage = null;
+      if (!this._progressStorage) {
+        this._checklistState = mergeChecklistState(this._checklistState, pageValues);
       } else {
         try {
-          checklistState = mergeChecklistState(
-            readChecks(progressStorage, STORAGE_KEY, CHECKLIST_IDS),
+          this._checklistState = mergeChecklistState(
+            readChecks(this._progressStorage, STORAGE_KEY, CHECKLIST_IDS),
             pageValues
           );
-          progressStorage.setItem(STORAGE_KEY, JSON.stringify(checklistState));
+          this._progressStorage.setItem(STORAGE_KEY, JSON.stringify(this._checklistState));
         } catch {
-          checklistState = mergeChecklistState(checklistState, pageValues);
-          progressStorage = null;
+          this._checklistState = mergeChecklistState(this._checklistState, pageValues);
+          this._progressStorage = null;
           sessionProgressOnly = true;
           // Storage may be disabled in private or hardened browser modes.
-          showSessionStorageWarning(root);
+          showSessionStorageWarning(this._root);
         }
       }
-      renderProgress();
-      scheduleStageRefresh();
+      this._renderProgress();
+      this._scheduleStageRefresh();
       if (typeof document.dispatchEvent === 'function') {
-        document.dispatchEvent(new CustomEvent('guide-progress-change', { detail: checklistState }));
+        document.dispatchEvent(new CustomEvent('guide-progress-change', { detail: this._checklistState }));
       }
     }
 
-    checkboxes.forEach((checkbox) => checkbox.addEventListener('change', () => persistChecks({
-      [checkbox.dataset.checkId]: checkbox.checked
-    })));
-    skipButtons.forEach((button) => button.addEventListener('click', () => {
-      const id = button.dataset.skipCheck;
-      if (optionalChecklistIds.has(id)) persistChecks({ [id]: checklistState[id] === 'na' ? false : 'na' });
-    }));
-    renderProgress();
-    document.addEventListener('guide-progress-change', (event) => {
-      checklistState = mergeChecklistState(event.detail, {});
-      renderProgress();
-      scheduleStageRefresh();
-    });
-    function refreshChecklist() {
+    _refreshChecklist() {
       if (sessionProgressOnly) {
-        progressStorage = null;
-        checklistState = mergeChecklistState(sessionChecklistState, {});
+        this._progressStorage = null;
+        this._checklistState = mergeChecklistState(sessionChecklistState, {});
       }
-      if (progressStorage) {
+      if (this._progressStorage) {
         try {
-          checklistState = readChecks(progressStorage, STORAGE_KEY, CHECKLIST_IDS);
+          this._checklistState = readChecks(this._progressStorage, STORAGE_KEY, CHECKLIST_IDS);
         } catch {
           // Keep the last usable state when storage becomes inaccessible.
-          progressStorage = null;
+          this._progressStorage = null;
           sessionProgressOnly = true;
-          showSessionStorageWarning(root);
+          showSessionStorageWarning(this._root);
         }
       }
-      renderProgress();
+      this._renderProgress();
     }
-    let stageRefreshTimer = null;
-    function stopStageRefresh() {
-      if (stageRefreshTimer !== null) window.clearTimeout(stageRefreshTimer);
-      stageRefreshTimer = null;
+
+    _refreshAndReschedule() {
+      this._refreshChecklist();
+      this._scheduleStageRefresh();
     }
-    function scheduleStageRefresh() {
-      stopStageRefresh();
+
+    _stopStageRefresh() {
+      if (this._stageRefreshTimer !== null) window.clearTimeout(this._stageRefreshTimer);
+      this._stageRefreshTimer = null;
+    }
+
+    // Wakes at the next Beijing midnight, milestone cutoff or countdown minute.
+    _scheduleStageRefresh() {
+      this._stopStageRefresh();
       if (document.visibilityState === 'hidden') return;
       const now = new Date();
       const timestamp = now.getTime();
       const nextMidnight = toUtcDay(getBeijingDateString(now)) + DAY_MS - BEIJING_OFFSET_MS;
       const upcomingCutoffs = milestones.map(item => Date.parse(item.endsAt || item.deadlineAt))
         .filter(at => at > timestamp);
-      const countdownTick = deadlinePanel && !deadlinePanel.hidden && deadlinePanel.dataset.state !== 'closed'
+      const panel = this._deadlinePanel;
+      const countdownTick = panel && !panel.hidden && panel.dataset.state !== 'closed'
         ? timestamp + 60_000 - timestamp % 60_000 : Infinity;
       const nextRefresh = Math.min(nextMidnight, countdownTick, ...upcomingCutoffs);
-      stageRefreshTimer = window.setTimeout(() => {
-        stageRefreshTimer = null;
-        refreshChecklist();
-        scheduleStageRefresh();
+      this._stageRefreshTimer = window.setTimeout(() => {
+        this._stageRefreshTimer = null;
+        this._refreshAndReschedule();
       }, Math.max(1, nextRefresh - timestamp));
     }
-    scheduleStageRefresh();
-    document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'hidden') stopStageRefresh();
-      else {
-        refreshChecklist();
-        scheduleStageRefresh();
-      }
-    });
+  }
 
-    if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
-      window.addEventListener('pageshow', () => {
-        refreshChecklist();
-        scheduleStageRefresh();
-      });
-      window.addEventListener('pagehide', stopStageRefresh);
-      window.addEventListener('storage', (event) => {
-        if (progressStorage && event.storageArea === progressStorage &&
-            (event.key === STORAGE_KEY || event.key === null)) {
-          refreshChecklist();
-          scheduleStageRefresh();
-        }
-      });
-    }
-
-    const resetButton = root.querySelector('#reset-progress');
-    resetButton?.addEventListener('click', () => {
-      const resetAll = resetButton.dataset.resetScope === 'all';
-      const confirmation = resetAll
-        ? '确定清空全部 21 项任务状态（含不适用状态）吗？此操作无法撤销。'
-        : '确定清空本页所有已勾选进度吗？此操作无法撤销。';
-      if (!window.confirm(confirmation)) return;
-      checkboxes.forEach((checkbox) => { checkbox.checked = false; });
-      if (resetAll) {
-        persistChecks(Object.fromEntries(CHECKLIST_IDS.map((id) => [id, false])));
-        return;
-      }
-      persistChecks();
-    });
-
+  function initTimelineFilters(root) {
     const filterButtons = Array.from(root.querySelectorAll('[data-filter]'));
-    const categoryItems = timelineElements.map((element) => ({
+    const categoryItems = Array.from(root.querySelectorAll('[data-milestone-id]')).map((element) => ({
       id: element.dataset.milestoneId,
       category: element.dataset.category,
       element
     }));
-
     filterButtons.forEach((button) => {
       button.addEventListener('click', () => {
-        const category = button.dataset.filter;
-        const visibleIds = new Set(filterTimeline(categoryItems, category).map((item) => item.id));
+        const visibleIds = new Set(filterTimeline(categoryItems, button.dataset.filter).map((item) => item.id));
         let lastVisible = null;
         categoryItems.forEach((item) => {
           const visible = visibleIds.has(item.id);
@@ -1605,27 +1632,46 @@
         });
       });
     });
+  }
 
+  function initPrintButtons(root) {
     root.querySelectorAll('[data-print]').forEach((button) => {
       button.addEventListener('click', () => window.print());
     });
+  }
 
+  // Highlights the table-of-contents link of the section currently in view (document only).
+  function initTocHighlight(root) {
+    if (root !== document || !('IntersectionObserver' in window)) return;
     const navLinks = Array.from(root.querySelectorAll('.page-toc a[href^="#"]'));
-    if (root === document && 'IntersectionObserver' in window) {
-      const observer = new IntersectionObserver((entries) => {
-        entries.forEach((entry) => {
-          if (!entry.isIntersecting) return;
-          navLinks.forEach((link) => {
-            const active = link.getAttribute('href') === `#${entry.target.id}`;
-            link.classList.toggle('is-active', active);
-            if (active) link.setAttribute('aria-current', 'location');
-            else link.removeAttribute('aria-current');
-          });
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (!entry.isIntersecting) return;
+        navLinks.forEach((link) => {
+          const active = link.getAttribute('href') === `#${entry.target.id}`;
+          link.classList.toggle('is-active', active);
+          if (active) link.setAttribute('aria-current', 'location');
+          else link.removeAttribute('aria-current');
         });
-      }, { rootMargin: '-20% 0px -68% 0px' });
-      root.querySelectorAll('main section[id]').forEach((section) => observer.observe(section));
-    }
+      });
+    }, { rootMargin: '-20% 0px -68% 0px' });
+    root.querySelectorAll('main section[id]').forEach((section) => observer.observe(section));
+  }
 
+  function initPage(root = document) {
+    const legacyDestination = root === document && getLegacyPageDestination(window.location.pathname, window.location.hash);
+    if (legacyDestination) {
+      window.location.replace(legacyDestination);
+      return;
+    }
+    if (root === document) {
+      initSiteNavigation();
+      initHomeReadingOrder();
+    }
+    new PageProgress(root).start();
+    initTimelineFilters(root);
+    initPrintButtons(root);
+    initTocHighlight(root);
     initOfficialUpdates(root);
     if (root === document) initGuideCards();
   }
