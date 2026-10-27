@@ -110,6 +110,21 @@ function buildNoNoticesError(diagnostics) {
   return error;
 }
 
+// Converts a thrown fetch/parse error into a failed source result and decides retryability.
+function buildFetchFailureResult(error, attemptedDiagnostics) {
+  const message = error?.name === 'AbortError' ? '请求超时' : String(error?.message || '请求失败');
+  return {
+    ok: false,
+    updates: [],
+    diagnostics: error?.diagnostics || attemptedDiagnostics,
+    degraded: error?.degraded === true,
+    error: message.slice(0, 160),
+    retryable: error?.name === 'AbortError' || error?.retryable === true || error instanceof TypeError ||
+      !('retryable' in Object(error)) && /network|fetch|socket|reset|timeout|offline/i.test(message),
+    retryAfterMs: Number.isFinite(error?.retryAfterMs) ? error.retryAfterMs : null
+  };
+}
+
 // Confirms every update's publication year against its article (up to four requests in
 // parallel) and drops verified updates that fall outside the current admission cycle.
 async function verifyUpdatePublicationDates(updates, readOfficialHtml, checkedAt) {
@@ -151,5 +166,6 @@ module.exports = {
   fetchOfficialHtml,
   buildDegradedResult,
   buildNoNoticesError,
+  buildFetchFailureResult,
   verifyUpdatePublicationDates
 };

@@ -31,6 +31,7 @@ const {
   fetchOfficialHtml,
   buildDegradedResult,
   buildNoNoticesError,
+  buildFetchFailureResult,
   verifyUpdatePublicationDates
 } = require('./official-fetch.cjs');
 
@@ -158,17 +159,7 @@ function createUpdateService(options = {}) {
         diagnostics: attemptedDiagnostics
       };
     } catch (error) {
-      const message = error?.name === 'AbortError' ? '请求超时' : String(error?.message || '请求失败');
-      return {
-        ok: false,
-        updates: [],
-        diagnostics: error?.diagnostics || attemptedDiagnostics,
-        degraded: error?.degraded === true,
-        error: message.slice(0, 160),
-        retryable: error?.name === 'AbortError' || error?.retryable === true || error instanceof TypeError ||
-          !('retryable' in Object(error)) && /network|fetch|socket|reset|timeout|offline/i.test(message),
-        retryAfterMs: Number.isFinite(error?.retryAfterMs) ? error.retryAfterMs : null
-      };
+      return buildFetchFailureResult(error, attemptedDiagnostics);
     } finally {
       clearTimeout(timer);
     }
@@ -247,6 +238,70 @@ function createUpdateService(options = {}) {
     }
   }
 
+  // Returns a function that emits the refresh-complete event at most once per refresh.
+  function createCompletionEmitter(attemptDate, getResults) {
+    let completionEmitted = false;
+    return function emitCompletion(status, cacheSaved, change, completionError = null) {
+      if (completionEmitted) return;
+      completionEmitted = true;
+      if (!onRefreshEvent) return;
+      const durationMs = Math.max(0, new Date(now()).getTime() - new Date(attemptDate).getTime());
+      const event = buildRefreshEvent({ sources, results: getResults(), status, cacheSaved, change, completionError, durationMs });
+      try {
+        Promise.resolve(onRefreshEvent(event)).catch(() => {});
+      } catch {
+        // Observability must never make trusted data unavailable.
+      }
+    };
+  }
+
+  // Commits fetched results to the snapshot, persists them and reports completion.
+  async function applyRefreshResults({ results, previousUpdates, previousSourceById, fetchedAt, emitCompletion }) {
+    const nextRefreshAt = getNextRefreshAt();
+    const successfulSourceIds = new Set(results.filter((result) => result.source.ok).map((result) => result.source.id));
+    const failedCount = results.length - successfulSourceIds.size;
+    const sourceStates = buildSourceStates(results, previousSourceById);
+
+    if (successfulSourceIds.size === 0) {
+      snapshot = buildAllSourcesFailedSnapshot({
+        snapshot, previousUpdates, failedCount, fetchedAt, nextRefreshAt, refreshIntervalMs, sourceStates
+      });
+      emitCompletion(snapshot.status, false, snapshot.change);
+      return getSnapshot();
+    }
+
+    const merged = mergeRefreshResults({ results, previousUpdates, sourceObservations, successfulSourceIds, fetchedAt });
+    const nextSnapshot = buildMergedSnapshot({
+      snapshot, merged, failedCount, fetchedAt, nextRefreshAt, refreshIntervalMs, sourceStates
+    });
+    snapshot = nextSnapshot;
+    sourceObservations = buildNextSourceObservations(merged, successfulSourceIds);
+    const cacheSaved = await saveMergedSnapshot(nextSnapshot);
+    const completedNextRefreshAt = getNextRefreshAt();
+    if (snapshot.nextRefreshAt !== completedNextRefreshAt) {
+      snapshot = { ...snapshot, nextRefreshAt: completedNextRefreshAt };
+    }
+    emitCompletion(snapshot.status, cacheSaved, snapshot.change);
+    return getSnapshot();
+  }
+
+  // Keeps the last trusted updates visible after an unexpected refresh failure.
+  function recordRefreshFailure(error, previousUpdates, fetchedAt, emitCompletion) {
+    snapshot = {
+      ...snapshot,
+      status: previousUpdates.length ? 'stale' : 'seed',
+      updates: previousUpdates,
+      fetchedAt,
+      lastAttemptAt: fetchedAt,
+      nextRefreshAt: getNextRefreshAt(),
+      error: `官方信息刷新失败：${String(error?.message || error).slice(0, 200)}`
+    };
+    emitCompletion('error', false, {
+      newCount: 0,
+      updatedCount: 0
+    }, error);
+  }
+
   async function performRefresh() {
     await initialize();
     const attemptDate = now();
@@ -255,65 +310,15 @@ function createUpdateService(options = {}) {
     // Expired records must not be mistaken for disappearing upstream links.
     const previousUpdates = (snapshot.updates || []).filter(update => !isStaleAdmissionUpdate(update, fetchedAt));
     let results = [];
-    let completionEmitted = false;
-
-    function emitCompletion(status, cacheSaved, change, completionError = null) {
-      if (completionEmitted) return;
-      completionEmitted = true;
-      if (!onRefreshEvent) return;
-      const durationMs = Math.max(0, new Date(now()).getTime() - new Date(attemptDate).getTime());
-      const event = buildRefreshEvent({ sources, results, status, cacheSaved, change, completionError, durationMs });
-      try {
-        Promise.resolve(onRefreshEvent(event)).catch(() => {});
-      } catch {
-        // Observability must never make trusted data unavailable.
-      }
-    }
+    const emitCompletion = createCompletionEmitter(attemptDate, () => results);
 
     try {
       const previousSourceById = new Map((snapshot.sources || []).map((source) => [source.id, source]));
       results = new Array(sources.length);
       await fetchAllSources(results, fetchedAt, previousUpdates, buildPriorDiagnosticsBySource(sources, previousSourceById));
-      const nextRefreshAt = getNextRefreshAt();
-      const successfulSourceIds = new Set(results.filter((result) => result.source.ok).map((result) => result.source.id));
-      const failedCount = results.length - successfulSourceIds.size;
-      const sourceStates = buildSourceStates(results, previousSourceById);
-
-      if (successfulSourceIds.size === 0) {
-        snapshot = buildAllSourcesFailedSnapshot({
-          snapshot, previousUpdates, failedCount, fetchedAt, nextRefreshAt, refreshIntervalMs, sourceStates
-        });
-        emitCompletion(snapshot.status, false, snapshot.change);
-        return getSnapshot();
-      }
-
-      const merged = mergeRefreshResults({ results, previousUpdates, sourceObservations, successfulSourceIds, fetchedAt });
-      const nextSnapshot = buildMergedSnapshot({
-        snapshot, merged, failedCount, fetchedAt, nextRefreshAt, refreshIntervalMs, sourceStates
-      });
-      snapshot = nextSnapshot;
-      sourceObservations = buildNextSourceObservations(merged, successfulSourceIds);
-      const cacheSaved = await saveMergedSnapshot(nextSnapshot);
-      const completedNextRefreshAt = getNextRefreshAt();
-      if (snapshot.nextRefreshAt !== completedNextRefreshAt) {
-        snapshot = { ...snapshot, nextRefreshAt: completedNextRefreshAt };
-      }
-      emitCompletion(snapshot.status, cacheSaved, snapshot.change);
-      return getSnapshot();
+      return await applyRefreshResults({ results, previousUpdates, previousSourceById, fetchedAt, emitCompletion });
     } catch (error) {
-      snapshot = {
-        ...snapshot,
-        status: previousUpdates.length ? 'stale' : 'seed',
-        updates: previousUpdates,
-        fetchedAt,
-        lastAttemptAt: fetchedAt,
-        nextRefreshAt: getNextRefreshAt(),
-        error: `官方信息刷新失败：${String(error?.message || error).slice(0, 200)}`
-      };
-      emitCompletion('error', false, {
-        newCount: 0,
-        updatedCount: 0
-      }, error);
+      recordRefreshFailure(error, previousUpdates, fetchedAt, emitCompletion);
       throw error;
     }
   }

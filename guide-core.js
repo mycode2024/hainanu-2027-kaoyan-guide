@@ -161,107 +161,122 @@
     }
   }
 
-  function normalizeUpdatesPayload(value) {
-    const payload = value && typeof value === 'object' ? value : {};
-    const allowedStatuses = new Set(['fresh', 'stale', 'seed']);
-    const validIso = (candidate) => typeof candidate === 'string' && Number.isFinite(Date.parse(candidate));
-    const text = (candidate) => typeof candidate === 'string' ? candidate.trim() : '';
-    const freshnessStates = new Set(['fresh', 'aging', 'overdue', 'never']);
-    const validPublicationDate = (candidate) => {
-      if (!/^20\d{2}-\d{2}-\d{2}$/.test(candidate)) return false;
-      const timestamp = toUtcDay(candidate);
-      return Number.isFinite(timestamp) && new Date(timestamp).toISOString().slice(0, 10) === candidate;
-    };
+  const SNAPSHOT_STATUSES = new Set(['fresh', 'stale', 'seed']);
+  const FRESHNESS_STATES = new Set(['fresh', 'aging', 'overdue', 'never']);
+  const MAX_NORMALIZED_UPDATES = 120;
 
-    const sources = (Array.isArray(payload.sources) ? payload.sources : [])
+  function isValidIsoString(candidate) {
+    return typeof candidate === 'string' && Number.isFinite(Date.parse(candidate));
+  }
+
+  function trimmedText(candidate) {
+    return typeof candidate === 'string' ? candidate.trim() : '';
+  }
+
+  function nonNegativeOrNull(candidate) {
+    return Number.isFinite(candidate) && candidate >= 0 ? candidate : null;
+  }
+
+  function isValidPublicationDate(candidate) {
+    if (!/^20\d{2}-\d{2}-\d{2}$/.test(candidate)) return false;
+    const timestamp = toUtcDay(candidate);
+    return Number.isFinite(timestamp) && new Date(timestamp).toISOString().slice(0, 10) === candidate;
+  }
+
+  function normalizeSources(list) {
+    return (Array.isArray(list) ? list : [])
       .filter((source) => source && typeof source === 'object')
       .map((source) => ({
-        id: text(source.id),
-        name: text(source.name),
-        url: text(source.url),
+        id: trimmedText(source.id),
+        name: trimmedText(source.name),
+        url: trimmedText(source.url),
         ok: source.ok === true ? true : source.ok === false ? false : null,
-        checkedAt: validIso(source.checkedAt) ? source.checkedAt : null,
-        lastSuccessAt: validIso(source.lastSuccessAt) ? source.lastSuccessAt : null,
+        checkedAt: isValidIsoString(source.checkedAt) ? source.checkedAt : null,
+        lastSuccessAt: isValidIsoString(source.lastSuccessAt) ? source.lastSuccessAt : null,
         attempts: Number.isInteger(source.attempts) && source.attempts >= 0 ? source.attempts : 0,
-        error: text(source.error) || null,
-        freshness: freshnessStates.has(source.freshness) ? source.freshness : null,
-        ageMs: Number.isFinite(source.ageMs) && source.ageMs >= 0 ? source.ageMs : null,
+        error: trimmedText(source.error) || null,
+        freshness: FRESHNESS_STATES.has(source.freshness) ? source.freshness : null,
+        ageMs: nonNegativeOrNull(source.ageMs),
         isOverdue: source.isOverdue === true || source.freshness === 'overdue' || source.freshness === 'never',
         degraded: source.degraded === true
       }))
       .filter((source) => source.id && source.name && isSafeOfficialUpdateUrl(source.url));
+  }
 
-    const updates = (Array.isArray(payload.updates) ? payload.updates : [])
+  function normalizeUpdateList(list) {
+    return (Array.isArray(list) ? list : [])
       .filter((update) => update && typeof update === 'object')
       .map((update) => ({
-        id: text(update.id),
-        title: text(update.title),
-        date: text(update.date),
-        url: text(update.url),
-        source: text(update.source),
-        sourceId: text(update.sourceId),
-        category: text(update.category) || '招生动态',
+        id: trimmedText(update.id),
+        title: trimmedText(update.title),
+        date: trimmedText(update.date),
+        url: trimmedText(update.url),
+        source: trimmedText(update.source),
+        sourceId: trimmedText(update.sourceId),
+        category: trimmedText(update.category) || '招生动态',
         isTarget2027: update.isTarget2027 === true,
         isImportant: update.isImportant === true,
-        discoveredAt: validIso(update.discoveredAt) ? update.discoveredAt : null,
-        lastSeenAt: validIso(update.lastSeenAt) ? update.lastSeenAt : null,
-        updatedAt: validIso(update.updatedAt) ? update.updatedAt : null
+        discoveredAt: isValidIsoString(update.discoveredAt) ? update.discoveredAt : null,
+        lastSeenAt: isValidIsoString(update.lastSeenAt) ? update.lastSeenAt : null,
+        updatedAt: isValidIsoString(update.updatedAt) ? update.updatedAt : null
       }))
       .filter((update) => (
-        update.id && update.title && validPublicationDate(update.date) &&
+        update.id && update.title && isValidPublicationDate(update.date) &&
         update.source && update.sourceId && isSafeOfficialUpdateUrl(update.url)
       ))
-      .slice(0, 120);
+      .slice(0, MAX_NORMALIZED_UPDATES);
+  }
 
+  // Unique string ids from an untrusted list that also appear in knownIds.
+  function pickKnownIds(ids, knownIds) {
+    return Array.from(new Set(
+      (Array.isArray(ids) ? ids : []).filter((id) => typeof id === 'string' && knownIds.has(id))
+    ));
+  }
+
+  function normalizeFreshness(freshness, lastSuccessAt, sourceIds) {
+    const state = FRESHNESS_STATES.has(freshness?.state)
+      ? freshness.state
+      : (isValidIsoString(lastSuccessAt) ? 'aging' : 'never');
+    return {
+      state,
+      ageMs: nonNegativeOrNull(freshness?.ageMs),
+      isOverdue: freshness?.isOverdue === true || state === 'overdue' || state === 'never',
+      overdueSourceIds: pickKnownIds(freshness?.overdueSourceIds, sourceIds),
+      worstSourceAgeMs: nonNegativeOrNull(freshness?.worstSourceAgeMs)
+    };
+  }
+
+  function normalizeUpdatesPayload(value) {
+    const payload = value && typeof value === 'object' ? value : {};
+    const sources = normalizeSources(payload.sources);
+    const updates = normalizeUpdateList(payload.updates);
     const updateIds = new Set(updates.map((update) => update.id));
-    const sourceIds = new Set(sources.map((source) => source.id));
-    const newIds = Array.from(new Set(
-      (Array.isArray(payload.change?.newIds) ? payload.change.newIds : [])
-        .filter((id) => typeof id === 'string' && updateIds.has(id))
-    ));
-    const updatedIds = Array.from(new Set(
-      (Array.isArray(payload.change?.updatedIds) ? payload.change.updatedIds : [])
-        .filter((id) => typeof id === 'string' && updateIds.has(id))
-    ));
-    const overdueSourceIds = Array.from(new Set(
-      (Array.isArray(payload.freshness?.overdueSourceIds) ? payload.freshness.overdueSourceIds : [])
-        .filter((id) => typeof id === 'string' && sourceIds.has(id))
-    ));
-    const freshnessState = freshnessStates.has(payload.freshness?.state)
-      ? payload.freshness.state
-      : (validIso(payload.lastSuccessAt) ? 'aging' : 'never');
+    const newIds = pickKnownIds(payload.change?.newIds, updateIds);
+    const updatedIds = pickKnownIds(payload.change?.updatedIds, updateIds);
+    const isoOrNull = (candidate) => (isValidIsoString(candidate) ? candidate : null);
 
     return {
       schemaVersion: payload.schemaVersion === 2 ? 2 : 1,
-      status: allowedStatuses.has(payload.status) ? payload.status : 'seed',
-      fetchedAt: validIso(payload.fetchedAt) ? payload.fetchedAt : null,
-      lastAttemptAt: validIso(payload.lastAttemptAt) ? payload.lastAttemptAt : null,
-      lastAnySuccessAt: validIso(payload.lastAnySuccessAt) ? payload.lastAnySuccessAt : null,
-      lastAllSuccessAt: validIso(payload.lastAllSuccessAt) ? payload.lastAllSuccessAt : null,
-      lastSuccessAt: validIso(payload.lastSuccessAt) ? payload.lastSuccessAt : null,
-      nextRefreshAt: validIso(payload.nextRefreshAt) ? payload.nextRefreshAt : null,
+      status: SNAPSHOT_STATUSES.has(payload.status) ? payload.status : 'seed',
+      fetchedAt: isoOrNull(payload.fetchedAt),
+      lastAttemptAt: isoOrNull(payload.lastAttemptAt),
+      lastAnySuccessAt: isoOrNull(payload.lastAnySuccessAt),
+      lastAllSuccessAt: isoOrNull(payload.lastAllSuccessAt),
+      lastSuccessAt: isoOrNull(payload.lastSuccessAt),
+      nextRefreshAt: isoOrNull(payload.nextRefreshAt),
       refreshIntervalMs: Number.isFinite(payload.refreshIntervalMs) ? payload.refreshIntervalMs : null,
-      freshness: {
-        state: freshnessState,
-        ageMs: Number.isFinite(payload.freshness?.ageMs) && payload.freshness.ageMs >= 0
-          ? payload.freshness.ageMs
-          : null,
-        isOverdue: payload.freshness?.isOverdue === true || freshnessState === 'overdue' || freshnessState === 'never',
-        overdueSourceIds,
-        worstSourceAgeMs: Number.isFinite(payload.freshness?.worstSourceAgeMs) && payload.freshness.worstSourceAgeMs >= 0
-          ? payload.freshness.worstSourceAgeMs
-          : null
-      },
+      freshness: normalizeFreshness(payload.freshness, payload.lastSuccessAt, new Set(sources.map((source) => source.id))),
       change: {
         newCount: newIds.length,
         newIds,
         updatedCount: updatedIds.length,
         updatedIds,
-        changedAt: validIso(payload.change?.changedAt) ? payload.change.changedAt : null
+        changedAt: isoOrNull(payload.change?.changedAt)
       },
       sources,
       updates,
-      error: text(payload.error) || null
+      error: trimmedText(payload.error) || null
     };
   }
 
@@ -317,17 +332,22 @@
     };
   }
 
-  function aggregateUpdatesForDisplay(updates, newIds = new Set(), acknowledgedIds = new Set()) {
-    const newIdSet = newIds instanceof Set ? newIds : new Set(newIds || []);
-    const acknowledgedIdSet = acknowledgedIds instanceof Set ? acknowledgedIds : new Set(acknowledgedIds || []);
-    const groupedByUrl = new Map();
-    const timestamp = (value) => {
-      const parsed = typeof value === 'string' ? Date.parse(value) : Number.NaN;
-      return Number.isFinite(parsed) ? parsed : null;
-    };
-    const contentTime = (update) => timestamp(update.updatedAt) ?? timestamp(update.discoveredAt) ?? Number.NEGATIVE_INFINITY;
-    const observationTime = (update) => timestamp(update.lastSeenAt) ?? contentTime(update);
+  function timestampOrNull(value) {
+    const parsed = typeof value === 'string' ? Date.parse(value) : Number.NaN;
+    return Number.isFinite(parsed) ? parsed : null;
+  }
 
+  function contentTime(update) {
+    return timestampOrNull(update.updatedAt) ?? timestampOrNull(update.discoveredAt) ?? Number.NEGATIVE_INFINITY;
+  }
+
+  function observationTime(update) {
+    return timestampOrNull(update.lastSeenAt) ?? contentTime(update);
+  }
+
+  // Groups updates that point at the same page (ignoring #fragments) regardless of source.
+  function groupUpdatesByUrl(updates) {
+    const groupedByUrl = new Map();
     (Array.isArray(updates) ? updates : []).forEach((update) => {
       if (!update || typeof update !== 'object' || typeof update.url !== 'string') return;
       let normalizedUrl = update.url;
@@ -339,55 +359,71 @@
       if (!groupedByUrl.has(normalizedUrl)) groupedByUrl.set(normalizedUrl, []);
       groupedByUrl.get(normalizedUrl).push(update);
     });
+    return groupedByUrl;
+  }
 
-    return Array.from(groupedByUrl.entries()).map(([url, members]) => {
-      const orderedMembers = members.slice().sort((left, right) => (
-        `${left.sourceId || ''}\u0000${left.id || ''}`.localeCompare(`${right.sourceId || ''}\u0000${right.id || ''}`)
-      ));
-      // Keep source/member order stable, but choose content by successful observation.
-      // Old caches without observation clocks fall back to revision/discovery time.
-      const primary = orderedMembers.reduce((current, candidate) => {
-        const currentTime = observationTime(current);
-        const candidateTime = observationTime(candidate);
-        return candidateTime > currentTime ||
-          (candidateTime === currentTime && contentTime(candidate) > contentTime(current))
-          ? candidate : current;
-      });
-      const sourceIds = [];
-      const sourceNames = [];
-      orderedMembers.forEach((member) => {
-        if (member.sourceId && !sourceIds.includes(member.sourceId)) sourceIds.push(member.sourceId);
-        if (member.source && !sourceNames.includes(member.source)) sourceNames.push(member.source);
-      });
-      const discoveredAt = orderedMembers
-        .map((member) => member.discoveredAt)
-        .filter((value) => typeof value === 'string' && Number.isFinite(Date.parse(value)))
-        .sort()
-        .at(-1) || null;
-      const memberIds = orderedMembers.map((member) => member.id).filter(Boolean);
-
-      return {
-        id: `url:${url}`,
-        url,
-        title: primary.title,
-        date: primary.date,
-        category: primary.category,
-        source: sourceNames.join('、'),
-        sourceNames,
-        sourceIds,
-        memberIds,
-        discoveredAt,
-        isTarget2027: orderedMembers.some((member) => member.isTarget2027),
-        isImportant: orderedMembers.some((member) => member.isImportant),
-        isNew: memberIds.some((id) => newIdSet.has(id) && !acknowledgedIdSet.has(id))
-      };
-    }).sort((a, b) => {
-      const dateOrder = String(b.date || '').localeCompare(String(a.date || ''), 'zh-CN');
-      if (dateOrder !== 0) return dateOrder;
-      if (Boolean(a.isTarget2027) !== Boolean(b.isTarget2027)) return a.isTarget2027 ? -1 : 1;
-      if (Boolean(a.isImportant) !== Boolean(b.isImportant)) return a.isImportant ? -1 : 1;
-      return String(a.title || '').localeCompare(String(b.title || ''), 'zh-CN');
+  // Keep source/member order stable, but choose content by successful observation.
+  // Old caches without observation clocks fall back to revision/discovery time.
+  function pickPrimaryUpdate(orderedMembers) {
+    return orderedMembers.reduce((current, candidate) => {
+      const currentTime = observationTime(current);
+      const candidateTime = observationTime(candidate);
+      return candidateTime > currentTime ||
+        (candidateTime === currentTime && contentTime(candidate) > contentTime(current))
+        ? candidate : current;
     });
+  }
+
+  function buildAggregateEntry(url, members, newIdSet, acknowledgedIdSet) {
+    const orderedMembers = members.slice().sort((left, right) => (
+      `${left.sourceId || ''}\u0000${left.id || ''}`.localeCompare(`${right.sourceId || ''}\u0000${right.id || ''}`)
+    ));
+    const primary = pickPrimaryUpdate(orderedMembers);
+    const sourceIds = [];
+    const sourceNames = [];
+    orderedMembers.forEach((member) => {
+      if (member.sourceId && !sourceIds.includes(member.sourceId)) sourceIds.push(member.sourceId);
+      if (member.source && !sourceNames.includes(member.source)) sourceNames.push(member.source);
+    });
+    const discoveredAt = orderedMembers
+      .map((member) => member.discoveredAt)
+      .filter((value) => typeof value === 'string' && Number.isFinite(Date.parse(value)))
+      .sort()
+      .at(-1) || null;
+    const memberIds = orderedMembers.map((member) => member.id).filter(Boolean);
+
+    return {
+      id: `url:${url}`,
+      url,
+      title: primary.title,
+      date: primary.date,
+      category: primary.category,
+      source: sourceNames.join('、'),
+      sourceNames,
+      sourceIds,
+      memberIds,
+      discoveredAt,
+      isTarget2027: orderedMembers.some((member) => member.isTarget2027),
+      isImportant: orderedMembers.some((member) => member.isImportant),
+      isNew: memberIds.some((id) => newIdSet.has(id) && !acknowledgedIdSet.has(id))
+    };
+  }
+
+  // Newest first, then 2027 notices, then important ones, then by title.
+  function compareAggregatedUpdates(a, b) {
+    const dateOrder = String(b.date || '').localeCompare(String(a.date || ''), 'zh-CN');
+    if (dateOrder !== 0) return dateOrder;
+    if (Boolean(a.isTarget2027) !== Boolean(b.isTarget2027)) return a.isTarget2027 ? -1 : 1;
+    if (Boolean(a.isImportant) !== Boolean(b.isImportant)) return a.isImportant ? -1 : 1;
+    return String(a.title || '').localeCompare(String(b.title || ''), 'zh-CN');
+  }
+
+  function aggregateUpdatesForDisplay(updates, newIds = new Set(), acknowledgedIds = new Set()) {
+    const newIdSet = newIds instanceof Set ? newIds : new Set(newIds || []);
+    const acknowledgedIdSet = acknowledgedIds instanceof Set ? acknowledgedIds : new Set(acknowledgedIds || []);
+    return Array.from(groupUpdatesByUrl(updates).entries())
+      .map(([url, members]) => buildAggregateEntry(url, members, newIdSet, acknowledgedIdSet))
+      .sort(compareAggregatedUpdates);
   }
 
   function formatFreshness(freshness = {}, refreshIntervalMs) {
