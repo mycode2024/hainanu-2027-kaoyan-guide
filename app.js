@@ -1130,18 +1130,260 @@
     select(0);
   }
 
-  function initGuideCards() {
-    if (typeof HTMLDialogElement === 'undefined' || !HTMLDialogElement.prototype.showModal) return;
-    const main = document.querySelector('main');
-    if (!main) return;
-    const pageNames = {
-      programs: '专业选择', scores: '2026 届分数', preparation: '初复试备考',
-      timeline: '全年时间轴', application: '报名流程', materials: '材料清单',
-      updates: '官方动态', sources: '官方信源'
-    };
-    initReadingGroups(main, document.body.dataset.page);
-    main.guideReveal(window.location.hash);
-    window.addEventListener('hashchange', () => main.guideReveal(window.location.hash));
+  const GUIDE_PAGE_NAMES = Object.freeze({
+    programs: '专业选择', scores: '2026 届分数', preparation: '初复试备考',
+    timeline: '全年时间轴', application: '报名流程', materials: '材料清单',
+    updates: '官方动态', sources: '官方信源'
+  });
+
+  /**
+   * Modal dialog that opens guide pages and inline templates as in-place cards.
+   *
+   * Builds one shared <dialog>, loads (and caches) each card's content, keeps a back
+   * trail between cards, animates open/close, restores focus to the opener and tells
+   * the rest of the page about visibility changes through guide-panel-change. Created
+   * once by initGuideCards for the home and sub pages.
+   */
+  class GuideCardDialog {
+    /**
+     * @param {HTMLElement} main The page's <main>, used to reveal in-page anchors.
+     */
+    constructor(main) {
+      this._main = main;
+      this._panels = new Map();
+      this._opener = null;
+      this._active = null;
+      this._trail = [];
+      this._controller = null;
+      this._revision = 0;
+      this._closeTimer = null;
+      this._backdropPress = false;
+      this._buildDialog();
+      this._bindDialogEvents();
+      document.addEventListener('click', (event) => this._onDocumentClick(event));
+      this._markPopupLinks();
+    }
+
+    _buildDialog() {
+      const dialog = createTextElement('dialog', 'guide-dialog');
+      dialog.setAttribute('aria-labelledby', 'guide-dialog-title');
+      const header = createTextElement('div', 'guide-dialog-header');
+      const heading = createTextElement('div', 'guide-dialog-heading');
+      const back = createTextElement('button', 'guide-back', '←');
+      back.type = 'button'; back.setAttribute('aria-label', '返回上一张卡片'); back.hidden = true;
+      const titleBlock = createTextElement('div');
+      titleBlock.append(createTextElement('p', 'guide-dialog-kicker', 'HNU 2027 / 随看随收'));
+      const title = createTextElement('h2'); title.id = 'guide-dialog-title';
+      titleBlock.append(title); heading.append(back, titleBlock);
+      const close = createTextElement('button', 'guide-close', '×');
+      close.type = 'button'; close.dataset.guideClose = ''; close.setAttribute('aria-label', '关闭卡片');
+      header.append(heading, close);
+      const viewport = createTextElement('div', 'guide-dialog-body');
+      const footer = createTextElement('div', 'guide-dialog-footer');
+      footer.append(createTextElement('span', '', '关闭卡片，继续当前页面'));
+      const print = createTextElement('button', 'text-button', '打印此卡片');
+      print.type = 'button'; print.addEventListener('click', () => window.print()); footer.append(print);
+      dialog.append(header, viewport, footer);
+      document.body.append(dialog);
+      Object.assign(this, { _dialog: dialog, _back: back, _title: title, _close: close, _viewport: viewport });
+    }
+
+    _bindDialogEvents() {
+      const dialog = this._dialog;
+      this._close.addEventListener('click', () => this._dismiss());
+      dialog.addEventListener('pointerdown', event => { this._backdropPress = event.target === dialog; });
+      dialog.addEventListener('click', event => { if (event.target === dialog && this._backdropPress) this._dismiss(); });
+      dialog.addEventListener('close', () => {
+        // A queued native close event must not clear a newly reopened card.
+        if (!dialog.open && this._active) this._cleanup();
+      });
+      dialog.addEventListener('cancel', event => {
+        // An open filter handles its own Escape before the dialog closes.
+        event.preventDefault();
+        if (!dialog.querySelector('.filter-select-menu[data-open="true"]')) this._dismiss();
+      });
+      this._back.addEventListener('click', () => { const previous = this._trail.pop(); if (previous) this._show(previous, false); });
+    }
+
+    _announceChange() { document.dispatchEvent(new Event('guide-panel-change')); }
+
+    _cleanup() {
+      this._revision += 1; this._controller?.abort();
+      ['enter', 'exit'].forEach(phase => {
+        this._dialog.style.removeProperty(`--dialog-${phase}-opacity`);
+        this._dialog.style.removeProperty(`--dialog-${phase}-transform`);
+        this._dialog.style.removeProperty(`--backdrop-${phase}-opacity`);
+      });
+      document.documentElement.classList.remove('guide-dialog-open');
+      this._viewport.replaceChildren();
+      this._active = null; this._trail = [];
+      this._announceChange();
+      this._opener?.focus({ preventScroll: true });
+    }
+
+    // Reopening during the exit animation resumes from the animation's current frame.
+    _cancelPendingClose() {
+      if (this._closeTimer === null) return;
+      const dialog = this._dialog;
+      const style = window.getComputedStyle(dialog);
+      dialog.style.setProperty('--dialog-enter-opacity', style.opacity);
+      dialog.style.setProperty('--dialog-enter-transform', style.transform);
+      dialog.style.setProperty('--backdrop-enter-opacity', window.getComputedStyle(dialog, '::backdrop').opacity);
+      window.clearTimeout(this._closeTimer);
+      this._closeTimer = null;
+      dialog.classList.remove('guide-closing');
+    }
+
+    _dismiss() {
+      if (this._closeTimer !== null) return;
+      const dialog = this._dialog;
+      const reducedMotion = typeof window.matchMedia === 'function'
+        && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      if (reducedMotion || !dialog.open) { dialog.close(); this._cleanup(); return; }
+      const style = window.getComputedStyle(dialog);
+      dialog.style.setProperty('--dialog-exit-opacity', style.opacity);
+      dialog.style.setProperty('--dialog-exit-transform', style.transform);
+      dialog.style.setProperty('--backdrop-exit-opacity', window.getComputedStyle(dialog, '::backdrop').opacity);
+      dialog.classList.add('guide-closing');
+      this._announceChange();
+      this._closeTimer = window.setTimeout(() => {
+        this._closeTimer = null;
+        dialog.classList.remove('guide-closing');
+        // Same synchronous close+cleanup as the instant path, so focus and scroll restore right away.
+        dialog.close();
+        this._cleanup();
+      }, readCardExitAnimationMs());
+    }
+
+    // Shows the loading state and opens the dialog before the card content is ready.
+    _beginShow(destination, remember) {
+      if (remember && this._active && this._active.key !== destination.key) this._trail.push(this._active);
+      this._active = destination;
+      this._back.hidden = this._trail.length === 0;
+      this._title.textContent = destination.title;
+      this._viewport.replaceChildren(createTextElement('p', 'guide-loading', '正在打开卡片…'));
+      this._viewport.setAttribute('aria-busy', 'true');
+      if (!this._dialog.open) {
+        document.documentElement.classList.add('guide-dialog-open');
+        this._dialog.showModal();
+      }
+      this._close.focus({ preventScroll: true });
+      this._announceChange();
+    }
+
+    // Fills a new panel from an inline template or by fetching the full page's <main>.
+    async _populatePanel(panel, destination, requestController) {
+      if (destination.template) {
+        panel.append(destination.template.content.cloneNode(true));
+        return;
+      }
+      const timeout = window.setTimeout(() => requestController.abort(), 10_000);
+      try {
+        const response = await fetch(destination.path, { signal: requestController.signal });
+        if (!response.ok) throw new Error('Unable to load guide');
+        const parsed = new DOMParser().parseFromString(await response.text(), 'text/html');
+        const source = parsed.querySelector('main');
+        if (!source || !parsed.documentElement.matches('[data-product="hainanu-2027-kaoyan-guide"]')) throw new Error('Invalid guide');
+        panel.append(...Array.from(source.childNodes).map(node => document.importNode(node, true)));
+      } finally {
+        window.clearTimeout(timeout);
+      }
+    }
+
+    // Builds, mounts and caches a panel; returns null when the request became stale.
+    async _createPanel(destination, request, requestController) {
+      const panel = createTextElement('div', 'guide-panel');
+      panel.dataset.page = destination.page || 'home';
+      await this._populatePanel(panel, destination, requestController);
+      if (request !== this._revision || !this._dialog.open) return null;
+      // Original page IDs are retained for source links; only one fetched panel is mounted.
+      panel.querySelectorAll('script').forEach(node => node.remove());
+      const updateList = panel.querySelector('[data-update-page-size]');
+      if (updateList) updateList.dataset.updatePageSize = '4';
+      this._viewport.replaceChildren(panel);
+      initReadingGroups(panel, destination.page);
+      initPage(panel);
+      this._panels.set(destination.key, panel);
+      return panel;
+    }
+
+    _renderLoadError(destination) {
+      const error = createTextElement('div', 'guide-error');
+      error.setAttribute('role', 'status');
+      error.append(createTextElement('h3', '', '这张卡片暂时未能打开'),
+        createTextElement('p', '', '请检查连接后重试，当前页面仍会保留。'));
+      const retry = createTextElement('button', 'button button-primary', '重新加载');
+      retry.type = 'button'; retry.addEventListener('click', () => this._show(destination, false)); error.append(retry);
+      if (destination.path) {
+        const link = createTextElement('a', 'text-link', '打开完整页面');
+        link.href = destination.path + (destination.hash || ''); link.dataset.guideBypass = ''; error.append(link);
+      }
+      this._viewport.replaceChildren(error); this._viewport.removeAttribute('aria-busy');
+    }
+
+    async _show(destination, remember = true) {
+      this._cancelPendingClose();
+      const request = ++this._revision;
+      this._controller?.abort(); this._controller = new AbortController();
+      const requestController = this._controller;
+      this._beginShow(destination, remember);
+      try {
+        let panel = this._panels.get(destination.key);
+        if (panel) {
+          this._viewport.replaceChildren(panel);
+        } else {
+          panel = await this._createPanel(destination, request, requestController);
+          if (!panel) return;
+        }
+        panel.guideReveal?.(destination.hash);
+        this._viewport.scrollTop = 0;
+        this._viewport.removeAttribute('aria-busy');
+        this._announceChange();
+      } catch {
+        if (request !== this._revision || !this._dialog.open) return;
+        this._renderLoadError(destination);
+      }
+    }
+
+    // Opens a same-site guide page or inline template as a card; ignores everything else.
+    _onDocumentClick(event) {
+      if (event.defaultPrevented || event.button > 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+      const local = event.target.closest('[data-guide-local]');
+      if (local) {
+        const template = document.getElementById(local.dataset.guideLocal);
+        if (!template) return;
+        event.preventDefault(); if (!this._dialog.open) this._opener = local;
+        this._show({ key: template.id, title: template.dataset.title, template }); return;
+      }
+      const link = event.target.closest('a[href]');
+      if (!link || link.target || link.hasAttribute('download') || link.hasAttribute('data-guide-bypass')) return;
+      const url = new URL(link.href, window.location.href);
+      if (url.origin !== window.location.origin) return;
+      const page = url.pathname.split('/').pop().replace(/\.html$/, '');
+      if (!GUIDE_PAGE_NAMES[page]) {
+        if (url.pathname === window.location.pathname && url.hash) this._main.guideReveal(url.hash);
+        return;
+      }
+      if (!this._dialog.open && page === document.body.dataset.page) {
+        this._main.guideReveal(url.hash); return;
+      }
+      event.preventDefault();
+      if (!this._dialog.open) this._opener = link;
+      this._show({ key: page, page, path: `/${page}.html`, hash: url.hash, title: GUIDE_PAGE_NAMES[page] });
+    }
+
+    // Marks links that will open as a dialog so assistive tech announces the popup.
+    _markPopupLinks() {
+      document.querySelectorAll('a[href]').forEach(link => {
+        const url = new URL(link.href, window.location.href);
+        const page = url.pathname.split('/').pop().replace(/\.html$/, '');
+        if (url.origin === window.location.origin && GUIDE_PAGE_NAMES[page] && page !== document.body.dataset.page) link.setAttribute('aria-haspopup', 'dialog');
+      });
+    }
+  }
+
+  // Expands collapsed <details> for printing and restores them afterwards.
+  function initPrintExpansion() {
     let closedPrintDetails = null;
     window.addEventListener('beforeprint', () => {
       if (closedPrintDetails) return;
@@ -1153,182 +1395,18 @@
       closedPrintDetails.forEach(details => { details.open = false; });
       closedPrintDetails = null;
     });
+  }
+
+  function initGuideCards() {
+    if (typeof HTMLDialogElement === 'undefined' || !HTMLDialogElement.prototype.showModal) return;
+    const main = document.querySelector('main');
+    if (!main) return;
+    initReadingGroups(main, document.body.dataset.page);
+    main.guideReveal(window.location.hash);
+    window.addEventListener('hashchange', () => main.guideReveal(window.location.hash));
+    initPrintExpansion();
     document.body.classList.add('guide-cards-ready');
-    const dialog = createTextElement('dialog', 'guide-dialog');
-    dialog.setAttribute('aria-labelledby', 'guide-dialog-title');
-    const header = createTextElement('div', 'guide-dialog-header');
-    const heading = createTextElement('div', 'guide-dialog-heading');
-    const back = createTextElement('button', 'guide-back', '←');
-    back.type = 'button'; back.setAttribute('aria-label', '返回上一张卡片'); back.hidden = true;
-    const titleBlock = createTextElement('div');
-    titleBlock.append(createTextElement('p', 'guide-dialog-kicker', 'HNU 2027 / 随看随收'));
-    const title = createTextElement('h2'); title.id = 'guide-dialog-title';
-    titleBlock.append(title); heading.append(back, titleBlock);
-    const close = createTextElement('button', 'guide-close', '×');
-    close.type = 'button'; close.dataset.guideClose = ''; close.setAttribute('aria-label', '关闭卡片');
-    header.append(heading, close);
-    const viewport = createTextElement('div', 'guide-dialog-body');
-    const footer = createTextElement('div', 'guide-dialog-footer');
-    footer.append(createTextElement('span', '', '关闭卡片，继续当前页面'));
-    const print = createTextElement('button', 'text-button', '打印此卡片');
-    print.type = 'button'; print.addEventListener('click', () => window.print()); footer.append(print);
-    dialog.append(header, viewport, footer);
-    document.body.append(dialog);
-    const panels = new Map();
-    let opener = null, active = null, trail = [], controller = null, revision = 0;
-    function announceChange() { document.dispatchEvent(new Event('guide-panel-change')); }
-    function cleanup() {
-      revision += 1; controller?.abort();
-      ['enter', 'exit'].forEach(phase => {
-        dialog.style.removeProperty(`--dialog-${phase}-opacity`);
-        dialog.style.removeProperty(`--dialog-${phase}-transform`);
-        dialog.style.removeProperty(`--backdrop-${phase}-opacity`);
-      });
-      document.documentElement.classList.remove('guide-dialog-open');
-      viewport.replaceChildren();
-      active = null; trail = [];
-      announceChange();
-      opener?.focus({ preventScroll: true });
-    }
-    let closeTimer = null;
-    function cancelPendingClose() {
-      if (closeTimer === null) return;
-      const style = window.getComputedStyle(dialog);
-      dialog.style.setProperty('--dialog-enter-opacity', style.opacity);
-      dialog.style.setProperty('--dialog-enter-transform', style.transform);
-      dialog.style.setProperty('--backdrop-enter-opacity', window.getComputedStyle(dialog, '::backdrop').opacity);
-      window.clearTimeout(closeTimer);
-      closeTimer = null;
-      dialog.classList.remove('guide-closing');
-    }
-    function dismiss() {
-      if (closeTimer !== null) return;
-      const reducedMotion = typeof window.matchMedia === 'function'
-        && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-      if (reducedMotion || !dialog.open) { dialog.close(); cleanup(); return; }
-      const style = window.getComputedStyle(dialog);
-      dialog.style.setProperty('--dialog-exit-opacity', style.opacity);
-      dialog.style.setProperty('--dialog-exit-transform', style.transform);
-      dialog.style.setProperty('--backdrop-exit-opacity', window.getComputedStyle(dialog, '::backdrop').opacity);
-      dialog.classList.add('guide-closing');
-      announceChange();
-      closeTimer = window.setTimeout(() => {
-        closeTimer = null;
-        dialog.classList.remove('guide-closing');
-        // Same synchronous close+cleanup as the instant path, so focus and scroll restore right away.
-        dialog.close();
-        cleanup();
-      }, readCardExitAnimationMs());
-    }
-    close.addEventListener('click', dismiss);
-    let backdropPress = false;
-    dialog.addEventListener('pointerdown', event => { backdropPress = event.target === dialog; });
-    dialog.addEventListener('click', event => { if (event.target === dialog && backdropPress) dismiss(); });
-    dialog.addEventListener('close', () => {
-      // A queued native close event must not clear a newly reopened card.
-      if (!dialog.open && active) cleanup();
-    });
-    dialog.addEventListener('cancel', event => {
-      // An open filter handles its own Escape before the dialog closes.
-      event.preventDefault();
-      if (!dialog.querySelector('.filter-select-menu[data-open="true"]')) dismiss();
-    });
-    back.addEventListener('click', () => { const previous = trail.pop(); if (previous) show(previous, false); });
-    async function show(destination, remember = true) {
-      cancelPendingClose();
-      const request = ++revision;
-      controller?.abort(); controller = new AbortController();
-      const requestController = controller;
-      if (remember && active && active.key !== destination.key) trail.push(active);
-      active = destination;
-      back.hidden = trail.length === 0;
-      title.textContent = destination.title;
-      viewport.replaceChildren(createTextElement('p', 'guide-loading', '正在打开卡片…'));
-      viewport.setAttribute('aria-busy', 'true');
-      if (!dialog.open) {
-        document.documentElement.classList.add('guide-dialog-open');
-        dialog.showModal();
-      }
-      close.focus({ preventScroll: true });
-      announceChange();
-      let timeout;
-      try {
-        let panel = panels.get(destination.key);
-        if (!panel) {
-          panel = createTextElement('div', 'guide-panel');
-          panel.dataset.page = destination.page || 'home';
-          if (destination.template) {
-            panel.append(destination.template.content.cloneNode(true));
-          } else {
-            timeout = window.setTimeout(() => requestController.abort(), 10_000);
-            const response = await fetch(destination.path, { signal: requestController.signal });
-            if (!response.ok) throw new Error('Unable to load guide');
-            const parsed = new DOMParser().parseFromString(await response.text(), 'text/html');
-            const source = parsed.querySelector('main');
-            if (!source || !parsed.documentElement.matches('[data-product="hainanu-2027-kaoyan-guide"]')) throw new Error('Invalid guide');
-            panel.append(...Array.from(source.childNodes).map(node => document.importNode(node, true)));
-          }
-          if (request !== revision || !dialog.open) return;
-          // Original page IDs are retained for source links; only one fetched panel is mounted.
-          panel.querySelectorAll('script').forEach(node => node.remove());
-          const updateList = panel.querySelector('[data-update-page-size]');
-          if (updateList) updateList.dataset.updatePageSize = '4';
-          viewport.replaceChildren(panel);
-          initReadingGroups(panel, destination.page);
-          initPage(panel);
-          panels.set(destination.key, panel);
-        } else {
-          viewport.replaceChildren(panel);
-        }
-        panel.guideReveal?.(destination.hash);
-        viewport.scrollTop = 0;
-        viewport.removeAttribute('aria-busy');
-        announceChange();
-      } catch {
-        if (request !== revision || !dialog.open) return;
-        const error = createTextElement('div', 'guide-error');
-        error.setAttribute('role', 'status');
-        error.append(createTextElement('h3', '', '这张卡片暂时未能打开'),
-          createTextElement('p', '', '请检查连接后重试，当前页面仍会保留。'));
-        const retry = createTextElement('button', 'button button-primary', '重新加载');
-        retry.type = 'button'; retry.addEventListener('click', () => show(destination, false)); error.append(retry);
-        if (destination.path) {
-          const link = createTextElement('a', 'text-link', '打开完整页面');
-          link.href = destination.path + (destination.hash || ''); link.dataset.guideBypass = ''; error.append(link);
-        }
-        viewport.replaceChildren(error); viewport.removeAttribute('aria-busy');
-      } finally { window.clearTimeout(timeout); }
-    }
-    document.addEventListener('click', event => {
-      if (event.defaultPrevented || event.button > 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
-      const local = event.target.closest('[data-guide-local]');
-      if (local) {
-        const template = document.getElementById(local.dataset.guideLocal);
-        if (!template) return;
-        event.preventDefault(); if (!dialog.open) opener = local;
-        show({ key: template.id, title: template.dataset.title, template }); return;
-      }
-      const link = event.target.closest('a[href]');
-      if (!link || link.target || link.hasAttribute('download') || link.hasAttribute('data-guide-bypass')) return;
-      const url = new URL(link.href, window.location.href);
-      if (url.origin !== window.location.origin) return;
-      const page = url.pathname.split('/').pop().replace(/\.html$/, '');
-      if (!pageNames[page]) {
-        if (url.pathname === window.location.pathname && url.hash) main.guideReveal(url.hash);
-        return;
-      }
-      if (!dialog.open && page === document.body.dataset.page) {
-        main.guideReveal(url.hash); return;
-      }
-      event.preventDefault();
-      if (!dialog.open) opener = link;
-      show({ key: page, page, path: `/${page}.html`, hash: url.hash, title: pageNames[page] });
-    });
-    document.querySelectorAll('a[href]').forEach(link => {
-      const url = new URL(link.href, window.location.href);
-      const page = url.pathname.split('/').pop().replace(/\.html$/, '');
-      if (url.origin === window.location.origin && pageNames[page] && page !== document.body.dataset.page) link.setAttribute('aria-haspopup', 'dialog');
-    });
+    new GuideCardDialog(main);
   }
 
   /**
