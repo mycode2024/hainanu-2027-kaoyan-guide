@@ -1891,3 +1891,28 @@ test('always shows a full publication year and distinguishes previous admission 
     assert.match(collectText(page.elements.updatesList), /2027 招生/);
   });
 });
+
+test('describeSnapshotStatus picks the headline by priority: backup recovery, overdue sources, then status', () => {
+  const { describeSnapshotStatus } = require('../guide-core.js');
+  const base = { status: 'fresh', error: '', sources: [{ id: 'a', name: '研究生院', ok: true }], freshness: { state: 'fresh', overdueSourceIds: [] } };
+  assert.equal(describeSnapshotStatus(base).title, '已连接 · 官方数据已同步');
+  assert.equal(describeSnapshotStatus({ ...base, status: 'seed' }).title, '服务已启动 · 等待首次成功同步');
+  assert.equal(describeSnapshotStatus({ ...base, status: 'stale', sources: [{ id: 'a', name: '研究生院', ok: false }] }).title, '缓存保护中 · 官方来源暂不可用');
+  assert.equal(describeSnapshotStatus({ ...base, status: 'stale', error: '最新通知已读取，但本地缓存写入失败：EPERM' }).title, '官方数据已读取 · 本地缓存写入失败');
+  assert.equal(describeSnapshotStatus({ ...base, status: 'stale' }).title, '缓存保护中 · 部分来源未连接');
+  assert.equal(describeSnapshotStatus({ ...base, freshness: { state: 'overdue', overdueSourceIds: [] } }).title, '同步已逾期 · 后台正在重试');
+  const overdueSource = describeSnapshotStatus({ ...base, sources: [{ id: 'a', name: '研究生院', ok: true, isOverdue: true }], freshness: { state: 'overdue', overdueSourceIds: ['a'] } });
+  assert.equal(overdueSource.title, '部分来源数据逾期 · 研究生院');
+  assert.match(overdueSource.detail, /研究生院 的数据已超过正常刷新窗口/);
+  const recovered = describeSnapshotStatus({ ...base, status: 'stale', error: '主缓存损坏，已从备份恢复', sources: [{ id: 'a', name: '研究生院', ok: false, isOverdue: true }] });
+  assert.equal(recovered.title, '已从缓存备份恢复，等待验证', 'backup recovery must outrank overdue sources');
+});
+
+test('describeUpdateCycle labels admission years and marks earlier cycles as reference only', () => {
+  const { describeUpdateCycle } = require('../guide-core.js');
+  assert.deepEqual(describeUpdateCycle({ title: '海南大学2027年硕士研究生招生简章', date: '2026-09-20' }), { label: '2027 招生', isPreviousCycle: false });
+  assert.deepEqual(describeUpdateCycle({ title: '2025年招生专业目录', date: '2024-09-20' }), { label: '2025 招生 · 往年参考', isPreviousCycle: true });
+  assert.deepEqual(describeUpdateCycle({ title: '2026年与2027年招生衔接说明', date: '2026-09-20' }), { label: '2026 / 2027 招生', isPreviousCycle: false });
+  assert.deepEqual(describeUpdateCycle({ title: '复试安排通知', date: '2025-03-10' }), { label: '往年发布 · 招生年份未注明', isPreviousCycle: false });
+  assert.deepEqual(describeUpdateCycle({ title: '复试安排通知', date: '2026-03-10' }), { label: '招生年份未注明', isPreviousCycle: false });
+});

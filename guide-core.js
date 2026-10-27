@@ -435,6 +435,48 @@
     return `${source.name}：${state}；数据新鲜度：${freshness}；最近成功：${lastSuccess}`;
   }
 
+  // Headline and default detail line of the live console for a normalized updates payload.
+  function describeSnapshotStatus(payload) {
+    const successfulSources = payload.sources.filter((source) => source.ok).length;
+    const overdueSourceIds = new Set(payload.freshness.overdueSourceIds);
+    const overdueSourceNames = payload.sources
+      .filter((source) => source.isOverdue || overdueSourceIds.has(source.id))
+      .map((source) => source.name);
+    if (/主缓存(?:缺失|损坏).*已从备份恢复/.test(payload.error || '')) {
+      return { title: '已从缓存备份恢复，等待验证', detail: '已恢复最近一次可信缓存；正在等待下一次官方来源验证。' };
+    }
+    if (overdueSourceNames.length) {
+      const names = overdueSourceNames.join('、');
+      return { title: `部分来源数据逾期 · ${names}`, detail: `${names} 的数据已超过正常刷新窗口，其余来源仍可查看。` };
+    }
+    if (payload.freshness.state === 'overdue') {
+      return { title: '同步已逾期 · 后台正在重试', detail: '最近成功数据仍可查看，请同时留意下方官方原文入口。' };
+    }
+    if (payload.status === 'fresh') {
+      return { title: '已连接 · 官方数据已同步', detail: `${payload.sources.length} 条官方信息流运行正常。` };
+    }
+    if (payload.status === 'seed') {
+      return { title: '服务已启动 · 等待首次成功同步', detail: '后台正在连接海南大学官方页面。' };
+    }
+    if (successfulSources === 0) {
+      return { title: '缓存保护中 · 官方来源暂不可用', detail: '正在展示最近一次成功数据，请稍后重试。' };
+    }
+    if (/缓存写入失败/.test(payload.error || '')) {
+      return { title: '官方数据已读取 · 本地缓存写入失败', detail: '当前页面可用，但重启服务后可能回到旧缓存。' };
+    }
+    return { title: '缓存保护中 · 部分来源未连接', detail: '继续展示最近一次成功数据，请结合官方原文确认。' };
+  }
+
+  // Admission-year badge for a notice: its label and whether it belongs to a previous cycle.
+  function describeUpdateCycle(update) {
+    const admissionYears = [...new Set(update.title.match(/20\d{2}(?=\s*(?:年|级))/g) || [])];
+    const isPreviousCycle = admissionYears.length > 0 && admissionYears.every((year) => Number(year) < 2027);
+    const label = admissionYears.length
+      ? `${admissionYears.join(' / ')} 招生${isPreviousCycle ? ' · 往年参考' : ''}`
+      : Number(update.date.slice(0, 4)) < 2026 ? '往年发布 · 招生年份未注明' : '招生年份未注明';
+    return { label, isPreviousCycle };
+  }
+
   return {
     DAY_MS,
     BEIJING_OFFSET_MS,
@@ -462,6 +504,8 @@
     formatFreshness,
     formatRefreshInterval,
     formatLiveDate,
-    formatSourceHealthTitle
+    formatSourceHealthTitle,
+    describeSnapshotStatus,
+    describeUpdateCycle
   };
 });

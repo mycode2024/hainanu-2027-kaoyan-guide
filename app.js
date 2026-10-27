@@ -28,7 +28,9 @@
     formatFreshness,
     formatRefreshInterval,
     formatLiveDate,
-    formatSourceHealthTitle
+    formatSourceHealthTitle,
+    describeSnapshotStatus,
+    describeUpdateCycle
   } = core;
 
   const STORAGE_KEY = 'hainanu-2027-kaoyan-progress-v1';
@@ -337,56 +339,98 @@
     if (widgets.length) bindNoticeSelectGlobalListeners(widgets, scope);
   }
 
-  function initOfficialUpdates(root = document) {
-    const isInactive = () => {
-      if (document.visibilityState === 'hidden') return true;
-      if (root === document) return false;
-      const dialog = root.closest('dialog');
-      return !root.isConnected || !dialog?.open || dialog.classList.contains('guide-closing');
-    };
-    const isCloud = document.body?.dataset?.hosting === 'vercel';
-    const consoleElement = root.querySelector('#live-updates-console');
-    const refreshButton = root.querySelector('#refresh-official-updates');
-    if (!consoleElement || !refreshButton) return;
+  /**
+   * Live official-notice console of the home and updates cards.
+   *
+   * Polls the update API, renders connection status, source health chips, the paged and
+   * filtered notice list and the unread ("new") tracking backed by localStorage. One
+   * instance owns one rendered root (the document or an open guide dialog) and pauses
+   * itself whenever that root is hidden or closed. Created by initOfficialUpdates.
+   */
+  class OfficialUpdatesPanel {
+    /**
+     * @param {Document|HTMLElement} root Document or dialog root that contains the console markup.
+     * @param {HTMLElement} consoleElement The #live-updates-console element.
+     * @param {HTMLButtonElement} refreshButton The manual sync button.
+     */
+    constructor(root, consoleElement, refreshButton) {
+      this._root = root;
+      this._console = consoleElement;
+      this._refreshButton = refreshButton;
+      this._isCloud = document.body?.dataset?.hosting === 'vercel';
+      this._collectElements();
+      this._updatesPage = 1;
+      this._updatesPageCount = 1;
+      this._hasRenderedSnapshot = false;
+      this._unseenBaselineAt = null;
+      this._latestPayload = null;
+      this._updateView = 'all';
+      this._renderedUpdatesKey = null;
+      this._acknowledgedIds = new Set();
+      this._pollTimer = null;
+      this._activeController = null;
+      this._requestInFlight = false;
+      this._resumePending = false;
+      if (this._noticeFilters) this._noticeFilters.hidden = false;
+      enhanceNoticeSelects([this._yearFilter, this._categoryFilter], root);
+      this._syncUnseenBaseline();
+    }
 
-    const statusTitle = root.querySelector('#live-status-title');
-    const statusDetail = root.querySelector('#live-status-detail');
-    const lastSuccess = root.querySelector('#live-last-success');
-    const freshness = root.querySelector('#live-freshness');
-    const nextRefresh = root.querySelector('#live-next-refresh');
-    const sourceCount = root.querySelector('#live-source-count');
-    const newCount = root.querySelector('#live-new-count');
-    const sourceHealth = root.querySelector('#live-source-health');
-    const updatesList = root.querySelector('#official-updates-list');
-    const previousPageButton = root.querySelector('#updates-previous');
-    const nextPageButton = root.querySelector('#updates-next');
-    const pageStatus = root.querySelector('#updates-page-status');
-    let updatesPage = 1;
-    let updatesPageCount = 1;
-    const updateFilterButtons = Array.from(root.querySelectorAll('[data-updates-filter]'));
-    const yearFilter = root.querySelector('#updates-year');
-    const categoryFilter = root.querySelector('#updates-category');
-    const noticeFilters = root.querySelector('.notice-filters');
-    if (noticeFilters) noticeFilters.hidden = false;
-    enhanceNoticeSelects([yearFilter, categoryFilter], root);
-    const acknowledgeUpdatesButton = root.querySelector('#acknowledge-official-updates');
-    let hasRenderedSnapshot = false;
-    let unseenBaselineAt = null;
-    let latestPayload = null;
-    let updateView = 'all';
-    let renderedUpdatesKey = null;
-    const acknowledgedUpdateIds = new Set();
-    let pollTimer = null;
-    let activeRequestController = null;
-    let requestInFlight = false;
-    let resumePending = false;
-    function syncUnseenBaseline(observedAt = null, acknowledge = false) {
+    _collectElements() {
+      const root = this._root;
+      this._statusTitle = root.querySelector('#live-status-title');
+      this._statusDetail = root.querySelector('#live-status-detail');
+      this._lastSuccess = root.querySelector('#live-last-success');
+      this._freshness = root.querySelector('#live-freshness');
+      this._nextRefresh = root.querySelector('#live-next-refresh');
+      this._sourceCount = root.querySelector('#live-source-count');
+      this._newCount = root.querySelector('#live-new-count');
+      this._sourceHealth = root.querySelector('#live-source-health');
+      this._updatesList = root.querySelector('#official-updates-list');
+      this._previousPageButton = root.querySelector('#updates-previous');
+      this._nextPageButton = root.querySelector('#updates-next');
+      this._pageStatus = root.querySelector('#updates-page-status');
+      this._filterButtons = Array.from(root.querySelectorAll('[data-updates-filter]'));
+      this._yearFilter = root.querySelector('#updates-year');
+      this._categoryFilter = root.querySelector('#updates-category');
+      this._noticeFilters = root.querySelector('.notice-filters');
+      this._acknowledgeButton = root.querySelector('#acknowledge-official-updates');
+    }
+
+    /** Wires the controls, then starts polling unless the page runs from file://. */
+    start() {
+      this._bindControls();
+      if (window.location.protocol === 'file:') {
+        this._renderDisconnected('当前是静态文件模式；运行 start-guide.cmd 后即可自动读取官网通知。');
+        this._refreshButton.disabled = true;
+        this._refreshButton.title = '请先启动本地 Node.js 服务';
+        return;
+      }
+      this._bindLifecycle();
+      this._loadUpdates(false);
+    }
+
+    // True while polling should pause: hidden tab, or a root whose dialog is closed/closing.
+    _isInactive() {
+      if (document.visibilityState === 'hidden') return true;
+      if (this._root === document) return false;
+      const dialog = this._root.closest('dialog');
+      return !this._root.isConnected || !dialog?.open || dialog.classList.contains('guide-closing');
+    }
+
+    _stopPolling() {
+      if (this._pollTimer) window.clearTimeout(this._pollTimer);
+      this._pollTimer = null;
+      this._activeController?.abort();
+    }
+
+    _syncUnseenBaseline(observedAt = null, acknowledge = false) {
       let storage = null;
       let storedAt = null;
       const advance = (candidate) => {
         if (typeof candidate === 'string' && Number.isFinite(Date.parse(candidate)) &&
-            (!unseenBaselineAt || Date.parse(candidate) > Date.parse(unseenBaselineAt))) {
-          unseenBaselineAt = candidate;
+            (!this._unseenBaselineAt || Date.parse(candidate) > Date.parse(this._unseenBaselineAt))) {
+          this._unseenBaselineAt = candidate;
         }
       };
       try {
@@ -395,23 +439,22 @@
         advance(storedAt);
       } catch {
         storage = null;
-        showSessionStorageWarning(root);
+        showSessionStorageWarning(this._root);
       }
       // Polling preserves the baseline; only an explicit acknowledgement advances it.
-      if (!unseenBaselineAt || acknowledge) advance(observedAt);
-      if (storage && unseenBaselineAt && (!storedAt || acknowledge) && storedAt !== unseenBaselineAt) {
+      if (!this._unseenBaselineAt || acknowledge) advance(observedAt);
+      if (storage && this._unseenBaselineAt && (!storedAt || acknowledge) && storedAt !== this._unseenBaselineAt) {
         try {
-          storage.setItem(LAST_SEEN_UPDATES_KEY, unseenBaselineAt);
+          storage.setItem(LAST_SEEN_UPDATES_KEY, this._unseenBaselineAt);
         } catch {
-          showSessionStorageWarning(root);
+          showSessionStorageWarning(this._root);
         }
       }
     }
-    syncUnseenBaseline();
 
-    function renderSources(sources, refreshIntervalMs) {
-      if (!sourceHealth) return;
-      sourceHealth.replaceChildren();
+    _renderSources(sources, refreshIntervalMs) {
+      if (!this._sourceHealth) return;
+      this._sourceHealth.replaceChildren();
       sources.forEach((source) => {
         const classes = [
           'source-health-chip',
@@ -430,196 +473,197 @@
         const dot = createTextElement('span', 'source-health-dot');
         dot.setAttribute('aria-hidden', 'true');
         link.append(dot, document.createTextNode(source.name));
-        sourceHealth.append(link);
+        this._sourceHealth.append(link);
       });
     }
 
-    function renderUpdates(displayUpdates) {
-      if (!updatesList) return;
-      const displayNewIds = new Set(displayUpdates.filter((update) => update.isNew).map((update) => update.id));
-      const filters = { year: yearFilter?.value || 'all', category: categoryFilter?.value || 'all' };
-      const selection = selectUpdatesForDisplay(displayUpdates, displayNewIds, new Set(), updateView, filters);
-      const updateLimit = /^[1-9]\d*$/.test(updatesList.dataset.updateLimit || '')
-        ? Number(updatesList.dataset.updateLimit)
-        : null;
-      const pageSize = /^[1-9]\d*$/.test(updatesList.dataset.updatePageSize || '')
-        ? Number(updatesList.dataset.updatePageSize)
-        : null;
-      updatesPageCount = pageSize ? Math.max(1, Math.ceil(selection.updates.length / pageSize)) : 1;
-      updatesPage = Math.min(updatesPage, updatesPageCount);
-      const pageStart = pageSize ? (updatesPage - 1) * pageSize : 0;
-      const renderedUpdates = pageSize
+    _buildEmptyItem(title, detail) {
+      const empty = createTextElement('li', 'official-update-empty');
+      empty.append(createTextElement('strong', '', title), createTextElement('span', '', detail));
+      return empty;
+    }
+
+    _renderEmptyList(filters) {
+      const filtered = filters.year !== 'all' || filters.category !== 'all';
+      const title = filtered ? '没有符合筛选条件的通知' : this._updateView === 'new' ? '暂时没有未读通知' : '暂未读到相关通知';
+      const detail = filtered
+        ? '可选择“全部年份”和“全部类别”，或切换到“全部”查看其他通知。'
+        : this._updateView === 'new'
+          ? '全部标为已读后，新收录通知会从此处移除；可切换到“全部”查看完整列表。'
+          : '这不等于学校没有公告；可稍后手动同步或前往官方信源页查看。';
+      this._updatesList.append(this._buildEmptyItem(title, detail));
+    }
+
+    _buildUpdateItem(update, isNew) {
+      const item = document.createElement('li');
+      const link = createTextElement('a', 'official-update-link');
+      link.href = update.url;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+
+      const date = createTextElement('time', 'official-update-date', update.date.replace(/-/g, '.'));
+      date.dateTime = update.date;
+      date.setAttribute('aria-label', `发布日期：${update.date}`);
+      const copy = createTextElement('div', 'official-update-copy');
+      const meta = createTextElement('div', 'official-update-meta');
+      meta.append(createTextElement('span', 'official-update-category', update.category));
+      if (isNew) meta.append(createTextElement('span', 'official-update-new', '新收录'));
+      const cycle = describeUpdateCycle(update);
+      meta.append(createTextElement('span', cycle.isPreviousCycle ? 'official-update-history' : 'official-update-target', cycle.label));
+      if (update.isImportant) meta.append(createTextElement('span', 'official-update-important', '重要'));
+      copy.append(meta, createTextElement('h3', '', update.title), createTextElement('p', '', update.source));
+      const arrow = createTextElement('span', 'official-update-arrow', '↗');
+      arrow.setAttribute('aria-hidden', 'true');
+      link.append(date, copy, arrow);
+      item.append(link);
+      return item;
+    }
+
+    // Selects the visible slice (limit or page) and refreshes the pager controls.
+    _selectPage(selection) {
+      const dataset = this._updatesList.dataset;
+      const updateLimit = /^[1-9]\d*$/.test(dataset.updateLimit || '') ? Number(dataset.updateLimit) : null;
+      const pageSize = /^[1-9]\d*$/.test(dataset.updatePageSize || '') ? Number(dataset.updatePageSize) : null;
+      this._updatesPageCount = pageSize ? Math.max(1, Math.ceil(selection.updates.length / pageSize)) : 1;
+      this._updatesPage = Math.min(this._updatesPage, this._updatesPageCount);
+      const pageStart = pageSize ? (this._updatesPage - 1) * pageSize : 0;
+      const rendered = pageSize
         ? selection.updates.slice(pageStart, pageStart + pageSize)
         : updateLimit ? selection.updates.slice(0, updateLimit) : selection.updates;
-      if (previousPageButton) previousPageButton.disabled = updatesPage <= 1;
-      if (nextPageButton) nextPageButton.disabled = updatesPage >= updatesPageCount;
-      if (pageStatus) pageStatus.textContent = `第 ${updatesPage} / ${updatesPageCount} 页 · 共 ${selection.updates.length} 条`;
+      if (this._previousPageButton) this._previousPageButton.disabled = this._updatesPage <= 1;
+      if (this._nextPageButton) this._nextPageButton.disabled = this._updatesPage >= this._updatesPageCount;
+      if (this._pageStatus) this._pageStatus.textContent = `第 ${this._updatesPage} / ${this._updatesPageCount} 页 · 共 ${selection.updates.length} 条`;
+      return rendered;
+    }
+
+    _renderUpdates(displayUpdates) {
+      if (!this._updatesList) return;
+      const displayNewIds = new Set(displayUpdates.filter((update) => update.isNew).map((update) => update.id));
+      const filters = { year: this._yearFilter?.value || 'all', category: this._categoryFilter?.value || 'all' };
+      const selection = selectUpdatesForDisplay(displayUpdates, displayNewIds, new Set(), this._updateView, filters);
+      const renderedUpdates = this._selectPage(selection);
       const renderedNewIds = selection.newIds.filter((id) => renderedUpdates.some((update) => update.id === id));
       const listRenderKey = createUpdatesSnapshotKey({
-        updateView,
+        updateView: this._updateView,
         filters,
         updates: renderedUpdates,
         newIds: renderedNewIds
       });
-      if (listRenderKey === renderedUpdatesKey) return;
-      renderedUpdatesKey = listRenderKey;
-      updatesList.replaceChildren();
-
+      if (listRenderKey === this._renderedUpdatesKey) return;
+      this._renderedUpdatesKey = listRenderKey;
+      this._updatesList.replaceChildren();
       if (!renderedUpdates.length) {
-        const empty = createTextElement('li', 'official-update-empty');
-        empty.append(
-          createTextElement('strong', '', filters.year !== 'all' || filters.category !== 'all' ? '没有符合筛选条件的通知' : updateView === 'new' ? '暂时没有未读通知' : '暂未读到相关通知'),
-          createTextElement('span', '', filters.year !== 'all' || filters.category !== 'all'
-            ? '可选择“全部年份”和“全部类别”，或切换到“全部”查看其他通知。'
-            : updateView === 'new'
-            ? '全部标为已读后，新收录通知会从此处移除；可切换到“全部”查看完整列表。'
-            : '这不等于学校没有公告；可稍后手动同步或前往官方信源页查看。')
-        );
-        updatesList.append(empty);
+        this._renderEmptyList(filters);
         return;
       }
-
       const selectedNewIds = new Set(renderedNewIds);
       renderedUpdates.forEach((update) => {
-        const item = document.createElement('li');
-        const link = createTextElement('a', 'official-update-link');
-        link.href = update.url;
-        link.target = '_blank';
-        link.rel = 'noopener noreferrer';
-
-        const dateLabel = update.date.replace(/-/g, '.');
-        const date = createTextElement('time', 'official-update-date', dateLabel);
-        date.dateTime = update.date;
-        date.setAttribute('aria-label', `发布日期：${update.date}`);
-        const copy = createTextElement('div', 'official-update-copy');
-        const meta = createTextElement('div', 'official-update-meta');
-        meta.append(createTextElement('span', 'official-update-category', update.category));
-        if (selectedNewIds.has(update.id)) meta.append(createTextElement('span', 'official-update-new', '新收录'));
-        const admissionYears = [...new Set(update.title.match(/20\d{2}(?=\s*(?:年|级))/g) || [])];
-        const previousCycle = admissionYears.length > 0 && admissionYears.every((year) => Number(year) < 2027);
-        const cycleLabel = admissionYears.length
-          ? `${admissionYears.join(' / ')} 招生${previousCycle ? ' · 往年参考' : ''}`
-          : Number(update.date.slice(0, 4)) < 2026 ? '往年发布 · 招生年份未注明' : '招生年份未注明';
-        meta.append(createTextElement('span', previousCycle ? 'official-update-history' : 'official-update-target', cycleLabel));
-        if (update.isImportant) meta.append(createTextElement('span', 'official-update-important', '重要'));
-        copy.append(
-          meta,
-          createTextElement('h3', '', update.title),
-          createTextElement('p', '', update.source)
-        );
-        const arrow = createTextElement('span', 'official-update-arrow', '↗');
-        arrow.setAttribute('aria-hidden', 'true');
-        link.append(date, copy, arrow);
-        item.append(link);
-        updatesList.append(item);
+        this._updatesList.append(this._buildUpdateItem(update, selectedNewIds.has(update.id)));
       });
     }
 
-    function renderSnapshot(rawPayload) {
-      const payload = normalizeUpdatesPayload(rawPayload);
-      const observedAt = payload.fetchedAt || payload.lastSuccessAt;
-      syncUnseenBaseline(observedAt);
-      const wasFirstRender = !hasRenderedSnapshot;
-      latestPayload = payload;
-      hasRenderedSnapshot = true;
-      consoleElement.dataset.state = payload.status;
-      consoleElement.dataset.freshness = payload.freshness.state;
-
-      const successfulSources = payload.sources.filter((source) => source.ok).length;
-      const overdueSourceIds = new Set(payload.freshness.overdueSourceIds);
-      const overdueSourceNames = payload.sources
-        .filter((source) => source.isOverdue || overdueSourceIds.has(source.id))
-        .map((source) => source.name);
-      const recoveredFromCacheBackup = /主缓存(?:缺失|损坏).*已从备份恢复/.test(payload.error || '');
-      let title;
-      let defaultDetail;
-      if (recoveredFromCacheBackup) {
-        [title, defaultDetail] = ['已从缓存备份恢复，等待验证', '已恢复最近一次可信缓存；正在等待下一次官方来源验证。'];
-      } else if (overdueSourceNames.length) {
-        const names = overdueSourceNames.join('、');
-        [title, defaultDetail] = [`部分来源数据逾期 · ${names}`, `${names} 的数据已超过正常刷新窗口，其余来源仍可查看。`];
-      } else if (payload.freshness.state === 'overdue') {
-        [title, defaultDetail] = ['同步已逾期 · 后台正在重试', '最近成功数据仍可查看，请同时留意下方官方原文入口。'];
-      } else if (payload.status === 'fresh') {
-        [title, defaultDetail] = ['已连接 · 官方数据已同步', `${payload.sources.length} 条官方信息流运行正常。`];
-      } else if (payload.status === 'seed') {
-        [title, defaultDetail] = ['服务已启动 · 等待首次成功同步', '后台正在连接海南大学官方页面。'];
-      } else if (successfulSources === 0) {
-        [title, defaultDetail] = ['缓存保护中 · 官方来源暂不可用', '正在展示最近一次成功数据，请稍后重试。'];
-      } else if (/缓存写入失败/.test(payload.error || '')) {
-        [title, defaultDetail] = ['官方数据已读取 · 本地缓存写入失败', '当前页面可用，但重启服务后可能回到旧缓存。'];
-      } else {
-        [title, defaultDetail] = ['缓存保护中 · 部分来源未连接', '继续展示最近一次成功数据，请结合官方原文确认。'];
-      }
-      if (statusTitle) statusTitle.textContent = title;
-      if (statusDetail) statusDetail.textContent = payload.error || defaultDetail;
-      if (lastSuccess) lastSuccess.textContent = formatLiveDate(payload.lastSuccessAt);
-      if (freshness) freshness.textContent = formatFreshness(payload.freshness, payload.refreshIntervalMs);
-      if (nextRefresh) {
+    _renderStatusLines(payload, successfulSources) {
+      const status = describeSnapshotStatus(payload);
+      if (this._statusTitle) this._statusTitle.textContent = status.title;
+      if (this._statusDetail) this._statusDetail.textContent = payload.error || status.detail;
+      if (this._lastSuccess) this._lastSuccess.textContent = formatLiveDate(payload.lastSuccessAt);
+      if (this._freshness) this._freshness.textContent = formatFreshness(payload.freshness, payload.refreshIntervalMs);
+      if (this._nextRefresh) {
         const refreshInterval = formatRefreshInterval(payload.refreshIntervalMs);
-        nextRefresh.textContent = isCloud ? '访问时检查 · 可手动同步' : payload.nextRefreshAt
+        this._nextRefresh.textContent = this._isCloud ? '访问时检查 · 可手动同步' : payload.nextRefreshAt
           ? formatLiveDate(payload.nextRefreshAt)
           : refreshInterval === '按刷新周期' ? refreshInterval : `每 ${refreshInterval}`;
       }
-      if (sourceCount) sourceCount.textContent = `${successfulSources} / ${payload.sources.length || 4} 正常`;
-      renderSources(payload.sources, payload.refreshIntervalMs);
-      renderCurrentUpdates();
-      if (wasFirstRender && payload.freshness.isOverdue && !requestInFlight) {
-        window.setTimeout(() => loadUpdates(true), 500);
+      if (this._sourceCount) this._sourceCount.textContent = `${successfulSources} / ${payload.sources.length || 4} 正常`;
+    }
+
+    _renderSnapshot(rawPayload) {
+      const payload = normalizeUpdatesPayload(rawPayload);
+      this._syncUnseenBaseline(payload.fetchedAt || payload.lastSuccessAt);
+      const wasFirstRender = !this._hasRenderedSnapshot;
+      this._latestPayload = payload;
+      this._hasRenderedSnapshot = true;
+      this._console.dataset.state = payload.status;
+      this._console.dataset.freshness = payload.freshness.state;
+      this._renderStatusLines(payload, payload.sources.filter((source) => source.ok).length);
+      this._renderSources(payload.sources, payload.refreshIntervalMs);
+      this._renderCurrentUpdates();
+      if (wasFirstRender && payload.freshness.isOverdue && !this._requestInFlight) {
+        window.setTimeout(() => this._loadUpdates(true), 500);
       }
     }
 
-    function renderDisconnected(message) {
-      if (hasRenderedSnapshot) {
-        consoleElement.dataset.state = 'offline';
-        if (statusTitle) statusTitle.textContent = '本次同步失败 · 显示最近数据';
-        if (statusDetail) statusDetail.textContent = message;
-        if (freshness) freshness.textContent = '连接中断 · 新鲜度未验证';
-        if (sourceCount) sourceCount.textContent = '连接中断 · 待验证';
-        if (nextRefresh) nextRefresh.textContent = '恢复连接后自动重试';
+    _renderDisconnected(message) {
+      this._console.dataset.state = 'offline';
+      if (this._hasRenderedSnapshot) {
+        if (this._statusTitle) this._statusTitle.textContent = '本次同步失败 · 显示最近数据';
+        if (this._statusDetail) this._statusDetail.textContent = message;
+        if (this._freshness) this._freshness.textContent = '连接中断 · 新鲜度未验证';
+        if (this._sourceCount) this._sourceCount.textContent = '连接中断 · 待验证';
+        if (this._nextRefresh) this._nextRefresh.textContent = '恢复连接后自动重试';
         return;
       }
-      consoleElement.dataset.state = 'offline';
-      if (statusTitle) statusTitle.textContent = '自动更新未连接';
-      if (statusDetail) statusDetail.textContent = message;
-      if (lastSuccess) lastSuccess.textContent = '—';
-      if (freshness) freshness.textContent = '服务未连接';
-      if (nextRefresh) nextRefresh.textContent = isCloud ? '连接恢复后启用' : '启动服务后启用';
-      if (sourceCount) sourceCount.textContent = '0 / 4 连接';
-      if (newCount) newCount.hidden = true;
-      if (sourceHealth) sourceHealth.replaceChildren();
-      if (updatesList) {
-        const empty = createTextElement('li', 'official-update-empty');
-        empty.append(
-          createTextElement('strong', '', '静态导航仍可正常使用'),
-          createTextElement('span', '', isCloud ? '在线通知服务暂不可用，请稍后重试或进入官方信源页查看原文。' : '启动本地服务后，这里会显示自动获取的海南大学官方通知。')
-        );
-        updatesList.replaceChildren(empty);
+      if (this._statusTitle) this._statusTitle.textContent = '自动更新未连接';
+      if (this._statusDetail) this._statusDetail.textContent = message;
+      if (this._lastSuccess) this._lastSuccess.textContent = '—';
+      if (this._freshness) this._freshness.textContent = '服务未连接';
+      if (this._nextRefresh) this._nextRefresh.textContent = this._isCloud ? '连接恢复后启用' : '启动服务后启用';
+      if (this._sourceCount) this._sourceCount.textContent = '0 / 4 连接';
+      if (this._newCount) this._newCount.hidden = true;
+      if (this._sourceHealth) this._sourceHealth.replaceChildren();
+      if (this._updatesList) {
+        this._updatesList.replaceChildren(this._buildEmptyItem(
+          '静态导航仍可正常使用',
+          this._isCloud ? '在线通知服务暂不可用，请稍后重试或进入官方信源页查看原文。' : '启动本地服务后，这里会显示自动获取的海南大学官方通知。'
+        ));
       }
     }
 
-    function scheduleNextPoll() {
-      if (pollTimer) window.clearTimeout(pollTimer);
-      pollTimer = null;
-      if (isInactive()) return;
-      pollTimer = window.setTimeout(() => loadUpdates(false), 60 * 1000);
+    _scheduleNextPoll() {
+      if (this._pollTimer) window.clearTimeout(this._pollTimer);
+      this._pollTimer = null;
+      if (this._isInactive()) return;
+      this._pollTimer = window.setTimeout(() => this._loadUpdates(false), 60 * 1000);
     }
 
-    async function loadUpdates(manual = false) {
-      if (requestInFlight || (!manual && isInactive())) return;
-      requestInFlight = true;
+    _setRefreshBusy(manual) {
+      this._refreshButton.disabled = true;
+      this._refreshButton.setAttribute('aria-busy', 'true');
+      this._refreshButton.textContent = manual ? '正在同步…' : '正在连接…';
+    }
+
+    _clearRefreshBusy() {
+      this._refreshButton.disabled = window.location.protocol === 'file:';
+      this._refreshButton.removeAttribute('aria-busy');
+      this._refreshButton.textContent = '立即同步';
+    }
+
+    _renderRateLimited() {
+      if (!this._hasRenderedSnapshot || this._console.dataset.state === 'offline') {
+        this._console.dataset.state = this._hasRenderedSnapshot ? 'stale' : 'seed';
+        if (this._statusTitle) this._statusTitle.textContent = '服务已连接 · 等待再次同步';
+      }
+      if (this._statusDetail) this._statusDetail.textContent = '同步请求过于频繁，请稍后再试；当前通知已保留。';
+    }
+
+    _failureMessage() {
+      if (this._hasRenderedSnapshot) return '本次同步失败，已保留当前页面中的最近数据。';
+      return this._isCloud
+        ? '在线通知服务暂未响应，请稍后重试；各导航页面仍可使用。'
+        : '请运行 start-guide.cmd 或 npm start，再通过 http://127.0.0.1:4173 打开本页。';
+    }
+
+    async _loadUpdates(manual = false) {
+      if (this._requestInFlight || (!manual && this._isInactive())) return;
+      this._requestInFlight = true;
       const controller = new AbortController();
-      activeRequestController = controller;
+      this._activeController = controller;
       // Local sync can use two 12s attempts plus up to 10s of Retry-After.
       // Snapshot reads stay short; cloud attempts have a smaller server budget.
-      const timeoutMs = isCloud ? 30_000 : manual ? 40_000 : 8_000;
+      const timeoutMs = this._isCloud ? 30_000 : manual ? 40_000 : 8_000;
       const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
-      const showBusy = manual || !hasRenderedSnapshot;
-      if (showBusy) {
-        refreshButton.disabled = true;
-        refreshButton.setAttribute('aria-busy', 'true');
-        refreshButton.textContent = manual ? '正在同步…' : '正在连接…';
-      }
+      const showBusy = manual || !this._hasRenderedSnapshot;
+      if (showBusy) this._setRefreshBusy(manual);
 
       try {
         const response = await window.fetch(manual ? '/api/refresh' : '/api/updates', {
@@ -632,130 +676,118 @@
           signal: controller.signal
         });
         if (response.status === 429) {
-          if (!hasRenderedSnapshot || consoleElement.dataset.state === 'offline') {
-            consoleElement.dataset.state = hasRenderedSnapshot ? 'stale' : 'seed';
-            if (statusTitle) statusTitle.textContent = '服务已连接 · 等待再次同步';
-          }
-          if (statusDetail) statusDetail.textContent = '同步请求过于频繁，请稍后再试；当前通知已保留。';
+          this._renderRateLimited();
           return;
         }
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        renderSnapshot(await response.json());
+        this._renderSnapshot(await response.json());
       } catch {
-        if (!isInactive()) {
-          renderDisconnected(hasRenderedSnapshot
-            ? '本次同步失败，已保留当前页面中的最近数据。'
-            : isCloud ? '在线通知服务暂未响应，请稍后重试；各导航页面仍可使用。'
-              : '请运行 start-guide.cmd 或 npm start，再通过 http://127.0.0.1:4173 打开本页。');
-        }
+        if (!this._isInactive()) this._renderDisconnected(this._failureMessage());
       } finally {
         window.clearTimeout(timeout);
-        if (activeRequestController === controller) activeRequestController = null;
-        requestInFlight = false;
-        if (showBusy) {
-          refreshButton.disabled = window.location.protocol === 'file:';
-          refreshButton.removeAttribute('aria-busy');
-          refreshButton.textContent = '立即同步';
+        if (this._activeController === controller) this._activeController = null;
+        this._requestInFlight = false;
+        if (showBusy) this._clearRefreshBusy();
+        if (this._resumePending && !this._isInactive()) {
+          this._resumePending = false;
+          this._loadUpdates(false);
+        } else {
+          this._scheduleNextPoll();
         }
-        if (resumePending && !isInactive()) {
-          resumePending = false;
-          loadUpdates(false);
-          return;
-        }
-        scheduleNextPoll();
       }
     }
 
-    refreshButton.addEventListener('click', () => loadUpdates(true));
-    function renderCurrentUpdates() {
-      if (!latestPayload) return;
-      const unseenIds = new Set(getUnseenUpdates(latestPayload.updates, unseenBaselineAt).map((update) => update.id));
-      const displayUpdates = aggregateUpdatesForDisplay(latestPayload.updates, unseenIds, acknowledgedUpdateIds);
-      if (newCount) {
+    _renderCurrentUpdates() {
+      if (!this._latestPayload) return;
+      const unseenIds = new Set(getUnseenUpdates(this._latestPayload.updates, this._unseenBaselineAt).map((update) => update.id));
+      const displayUpdates = aggregateUpdatesForDisplay(this._latestPayload.updates, unseenIds, this._acknowledgedIds);
+      if (this._newCount) {
         const unacknowledgedCount = displayUpdates.filter((update) => update.isNew).length;
-        newCount.hidden = unacknowledgedCount === 0;
-        newCount.textContent = unacknowledgedCount ? `${unacknowledgedCount} 条新收录` : '';
+        this._newCount.hidden = unacknowledgedCount === 0;
+        this._newCount.textContent = unacknowledgedCount ? `${unacknowledgedCount} 条新收录` : '';
       }
       // Local read-state changes must not overwrite the latest connection status.
-      renderUpdates(displayUpdates);
+      this._renderUpdates(displayUpdates);
     }
-    function changeUpdatesPage(offset) {
-      if (!latestPayload) return;
-      updatesPage = Math.max(1, Math.min(updatesPageCount, updatesPage + offset));
-      renderCurrentUpdates();
-      updatesList?.focus();
+
+    _changePage(offset) {
+      if (!this._latestPayload) return;
+      this._updatesPage = Math.max(1, Math.min(this._updatesPageCount, this._updatesPage + offset));
+      this._renderCurrentUpdates();
+      this._updatesList?.focus();
     }
-    previousPageButton?.addEventListener('click', () => changeUpdatesPage(-1));
-    nextPageButton?.addEventListener('click', () => changeUpdatesPage(1));
-    [yearFilter, categoryFilter].forEach((select) => select?.addEventListener('change', () => {
-      updatesPage = 1;
-      renderCurrentUpdates();
-    }));
-    updateFilterButtons.forEach((button) => {
-      button.addEventListener('click', () => {
-        updateView = button.dataset.updatesFilter === 'new' ? 'new' : 'all';
-        updatesPage = 1;
-        updateFilterButtons.forEach((candidate) => {
-          candidate.setAttribute('aria-pressed', String(candidate === button));
+
+    _acknowledgeAll() {
+      if (!this._latestPayload) return;
+      getUnseenUpdates(this._latestPayload.updates, this._unseenBaselineAt)
+        .forEach((update) => this._acknowledgedIds.add(update.id));
+      this._syncUnseenBaseline(this._latestPayload.fetchedAt || this._latestPayload.lastSuccessAt, true);
+      this._renderedUpdatesKey = null;
+      this._renderCurrentUpdates();
+    }
+
+    _bindControls() {
+      this._refreshButton.addEventListener('click', () => this._loadUpdates(true));
+      this._previousPageButton?.addEventListener('click', () => this._changePage(-1));
+      this._nextPageButton?.addEventListener('click', () => this._changePage(1));
+      [this._yearFilter, this._categoryFilter].forEach((select) => select?.addEventListener('change', () => {
+        this._updatesPage = 1;
+        this._renderCurrentUpdates();
+      }));
+      this._filterButtons.forEach((button) => {
+        button.addEventListener('click', () => {
+          this._updateView = button.dataset.updatesFilter === 'new' ? 'new' : 'all';
+          this._updatesPage = 1;
+          this._filterButtons.forEach((candidate) => {
+            candidate.setAttribute('aria-pressed', String(candidate === button));
+          });
+          this._renderCurrentUpdates();
         });
-        renderCurrentUpdates();
       });
-    });
-    acknowledgeUpdatesButton?.addEventListener('click', () => {
-      if (!latestPayload) return;
-      const unseenUpdates = getUnseenUpdates(latestPayload.updates, unseenBaselineAt);
-      unseenUpdates.forEach((update) => acknowledgedUpdateIds.add(update.id));
-      const observedAt = latestPayload.fetchedAt || latestPayload.lastSuccessAt;
-      syncUnseenBaseline(observedAt, true);
-      renderedUpdatesKey = null;
-      renderCurrentUpdates();
-    });
-
-    if (window.location.protocol === 'file:') {
-      renderDisconnected('当前是静态文件模式；运行 start-guide.cmd 后即可自动读取官网通知。');
-      refreshButton.disabled = true;
-      refreshButton.title = '请先启动本地 Node.js 服务';
-      return;
+      this._acknowledgeButton?.addEventListener('click', () => this._acknowledgeAll());
     }
 
-    document.addEventListener('visibilitychange', () => {
-      if (isInactive()) {
-        if (pollTimer) window.clearTimeout(pollTimer);
-        pollTimer = null;
-        activeRequestController?.abort();
+    // Pauses polling while inactive and resumes it when the tab or card becomes visible again.
+    _onVisibilityOrPanelChange(keepResumeFlag) {
+      if (this._isInactive()) {
+        this._stopPolling();
         return;
       }
-      if (requestInFlight) {
-        resumePending = true;
+      if (this._requestInFlight) {
+        this._resumePending = true;
         return;
       }
-      resumePending = false;
-      loadUpdates(false);
-    });
-    if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
-      window.addEventListener('storage', (event) => {
-        if (event.key === LAST_SEEN_UPDATES_KEY) {
-          try {
-            if (event.storageArea !== window.localStorage) return;
-          } catch {
-            showSessionStorageWarning(root);
-            return;
-          }
-          // Read current storage: a queued event may describe an older write.
-          syncUnseenBaseline();
-          renderCurrentUpdates();
-        }
-      });
+      if (!keepResumeFlag) this._resumePending = false;
+      this._loadUpdates(false);
     }
-    document.addEventListener('guide-panel-change', () => {
-      if (isInactive()) {
-        if (pollTimer) window.clearTimeout(pollTimer);
-        pollTimer = null;
-        activeRequestController?.abort();
-      } else if (requestInFlight) resumePending = true;
-      else loadUpdates(false);
-    });
-    loadUpdates(false);
+
+    _bindLifecycle() {
+      document.addEventListener('visibilitychange', () => this._onVisibilityOrPanelChange(false));
+      if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+        window.addEventListener('storage', (event) => this._onStorageEvent(event));
+      }
+      document.addEventListener('guide-panel-change', () => this._onVisibilityOrPanelChange(true));
+    }
+
+    _onStorageEvent(event) {
+      if (event.key !== LAST_SEEN_UPDATES_KEY) return;
+      try {
+        if (event.storageArea !== window.localStorage) return;
+      } catch {
+        showSessionStorageWarning(this._root);
+        return;
+      }
+      // Read current storage: a queued event may describe an older write.
+      this._syncUnseenBaseline();
+      this._renderCurrentUpdates();
+    }
+  }
+
+  function initOfficialUpdates(root = document) {
+    const consoleElement = root.querySelector('#live-updates-console');
+    const refreshButton = root.querySelector('#refresh-official-updates');
+    if (!consoleElement || !refreshButton) return;
+    new OfficialUpdatesPanel(root, consoleElement, refreshButton).start();
   }
 
   function initHomeReadingOrder() {
