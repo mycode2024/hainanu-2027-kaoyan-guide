@@ -843,157 +843,208 @@
   }
 
   // Keep content changes immediate while the surrounding layout catches up.
-  function createContentTransition(container) {
-    let animation = null;
-    let targetHeight = 0;
-    const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)');
+  /**
+   * Animates a container's height between two content states.
+   *
+   * Measures before and after a DOM update, plays a short height animation, follows
+   * late content changes with a ResizeObserver, and cancels itself on print, resize,
+   * reduced-motion changes or when the container leaves the document. Used by reading
+   * tabs and timeline cards through createContentTransition.
+   */
+  class ContentTransition {
+    /**
+     * @param {HTMLElement} container Element whose height is animated.
+     */
+    constructor(container) {
+      this._container = container;
+      this._animation = null;
+      this._targetHeight = 0;
+      this._reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)');
+      this._observer = typeof ResizeObserver === 'function' ? new ResizeObserver(() => this._onContentResize()) : null;
+      window.addEventListener('beforeprint', () => this._finish());
+      window.addEventListener('resize', () => this._finish());
+      this._reducedMotion?.addEventListener?.('change', () => this._finish());
+      document.addEventListener('guide-panel-change', () => { if (!container.isConnected) this._finish(); });
+    }
+
     // CSS pixels exclude the dialog's entrance scale, unlike a bounding rect.
-    const height = () => container.getClientRects().length ? parseFloat(window.getComputedStyle(container).height) || 0 : 0;
-    const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(() => {
-      if (!animation) return;
-      const before = height();
+    _height() {
+      const container = this._container;
+      return container.getClientRects().length ? parseFloat(window.getComputedStyle(container).height) || 0 : 0;
+    }
+
+    _onContentResize() {
+      if (!this._animation) return;
+      const before = this._height();
       // Read the new natural height without resetting the animation's clock.
       // Nested steps and expanded notes can change it during a tab transition.
-      const effect = animation.effect;
+      const effect = this._animation.effect;
       const frames = effect.getKeyframes();
       effect.setKeyframes([]);
-      const after = height();
+      const after = this._height();
       effect.setKeyframes(frames);
-      if (Math.abs(after - targetHeight) >= 1) resize(before, after);
-    }) : null;
-    function resize(before, after) {
-      if (animation) { animation.onfinish = null; animation.cancel(); }
-      targetHeight = after;
-      animation = container.animate([{ height: `${before}px` }, { height: `${after}px` }], {
+      if (Math.abs(after - this._targetHeight) >= 1) this._resize(before, after);
+    }
+
+    _resize(before, after) {
+      if (this._animation) { this._animation.onfinish = null; this._animation.cancel(); }
+      this._targetHeight = after;
+      this._animation = this._container.animate([{ height: `${before}px` }, { height: `${after}px` }], {
         duration: 240, easing: 'cubic-bezier(.2, 0, 0, 1)'
       });
-      container.classList.add('content-resizing');
-      animation.onfinish = finish;
+      this._container.classList.add('content-resizing');
+      this._animation.onfinish = () => this._finish();
     }
-    function finish() {
-      const previous = animation;
-      animation = null;
-      observer?.disconnect();
+
+    _finish() {
+      const previous = this._animation;
+      this._animation = null;
+      this._observer?.disconnect();
       if (previous) { previous.onfinish = null; previous.cancel(); }
-      container.classList.remove('content-resizing');
+      this._container.classList.remove('content-resizing');
     }
-    window.addEventListener('beforeprint', finish);
-    window.addEventListener('resize', finish);
-    reducedMotion?.addEventListener?.('change', finish);
-    document.addEventListener('guide-panel-change', () => { if (!container.isConnected) finish(); });
-    return (update, direction = 1, enabled = true) => {
+
+    /**
+     * Applies `update` and animates the resulting height change.
+     * @param {Function} update Mutates the container's content synchronously.
+     * @param {number} direction Negative for backward navigation, otherwise forward.
+     * @param {boolean} enabled False to apply the update without animation.
+     */
+    run(update, direction = 1, enabled = true) {
+      const container = this._container;
       // Measure before cancelling so an interrupted transition never snaps back.
-      const before = height();
-      finish();
+      const before = this._height();
+      this._finish();
       container.dataset.motionDirection = direction < 0 ? 'backward' : 'forward';
       update();
-      if (!enabled || !container.animate || reducedMotion?.matches ||
+      if (!enabled || !container.animate || this._reducedMotion?.matches ||
           window.matchMedia?.('print').matches || !container.isConnected || before === 0) return;
-      const after = height();
+      const after = this._height();
       if (after === 0 || Math.abs(after - before) < 1) return;
-      resize(before, after);
-      Array.from(container.children).forEach(child => observer?.observe(child));
-    };
+      this._resize(before, after);
+      Array.from(container.children).forEach(child => this._observer?.observe(child));
+    }
   }
 
-  // Group existing source content, so the full-page and card views stay in sync.
-  function initReadingGroups(root, page) {
-    const configurations = {
-      programs: [
-        ['学硕 · 081200', '.program-card:nth-child(1)'],
-        ['计技 · 085404', '.program-card:nth-child(2)'],
-        ['软工 · 085405', '.program-card:nth-child(3)'],
-        ['目录说明', '.data-note, .baseline-note']
-      ],
-      scores: [
-        ['分数概览', '.score-overview, .baseline-note, .score-section > .score-table-wrap'],
-        ['分数分布', '.score-distributions'],
-        ['专项与复试', '.score-details'],
-        ['统计说明', '.score-method, .score-sources']
-      ],
-      preparation: [
-        ['408 初试', '.exam-card-dark'], ['复试参考', '.exam-card:not(.exam-card-dark)'],
-        ['备考节奏', '.prep-calendar'], ['风险提醒', '#risks']
-      ],
-      application: [
-        ['报名前须知', '.critical-difference, #apply-guide > .baseline-note'],
-        ['八步填报', '.apply-steps'], ['审核期限', '#review-deadlines']
-      ],
-      materials: [
-        ['八项材料', '.checklist-grid'], ['材料期限', '.review-deadlines'],
-        ['报考资格', 'details.special-note']
-      ],
-      sources: [['官方入口', '.source-list'], ['咨询电话', '.contact-card']]
-    };
-    const configuration = configurations[page];
-    const groups = configuration?.map(([label, selector]) => ({ label, nodes: Array.from(root.querySelectorAll(selector)) }))
+  function createContentTransition(container) {
+    const transition = new ContentTransition(container);
+    return (update, direction = 1, enabled = true) => transition.run(update, direction, enabled);
+  }
+
+  // Tab groups per page: [label, selector of the source content that belongs to the tab].
+  const READING_GROUP_CONFIGURATIONS = Object.freeze({
+    programs: [
+      ['学硕 · 081200', '.program-card:nth-child(1)'],
+      ['计技 · 085404', '.program-card:nth-child(2)'],
+      ['软工 · 085405', '.program-card:nth-child(3)'],
+      ['目录说明', '.data-note, .baseline-note']
+    ],
+    scores: [
+      ['分数概览', '.score-overview, .baseline-note, .score-section > .score-table-wrap'],
+      ['分数分布', '.score-distributions'],
+      ['专项与复试', '.score-details'],
+      ['统计说明', '.score-method, .score-sources']
+    ],
+    preparation: [
+      ['408 初试', '.exam-card-dark'], ['复试参考', '.exam-card:not(.exam-card-dark)'],
+      ['备考节奏', '.prep-calendar'], ['风险提醒', '#risks']
+    ],
+    application: [
+      ['报名前须知', '.critical-difference, #apply-guide > .baseline-note'],
+      ['八步填报', '.apply-steps'], ['审核期限', '#review-deadlines']
+    ],
+    materials: [
+      ['八项材料', '.checklist-grid'], ['材料期限', '.review-deadlines'],
+      ['报考资格', 'details.special-note']
+    ],
+    sources: [['官方入口', '.source-list'], ['咨询电话', '.contact-card']]
+  });
+
+  // Existing source nodes per tab, plus the ids of the sections they came from.
+  function collectReadingGroups(root, page) {
+    const groups = READING_GROUP_CONFIGURATIONS[page]
+      ?.map(([label, selector]) => ({ label, nodes: Array.from(root.querySelectorAll(selector)) }))
       .filter(group => group.nodes.length) || [];
     groups.forEach(group => {
       group.sectionIds = new Set(group.nodes.map(node => node.closest('section')?.id).filter(Boolean));
     });
-    let activate = null;
-    if (groups.length > 1) {
-      const tabs = createTextElement('div', 'reading-tabs');
-      tabs.setAttribute('role', 'tablist');
-      tabs.setAttribute('aria-label', '选择查看内容');
-      const panes = createTextElement('div', 'reading-panes');
-      const unique = `reading-${page}-${root.classList.contains('guide-panel') ? 'card' : 'page'}`;
-      const buttons = groups.map((group, index) => {
-        const button = createTextElement('button', '', group.label);
-        button.type = 'button';
-        button.id = `${unique}-tab-${index}`;
-        button.setAttribute('role', 'tab');
-        button.setAttribute('aria-controls', `${unique}-pane-${index}`);
-        const pane = createTextElement('div', 'reading-pane');
-        pane.id = `${unique}-pane-${index}`;
-        pane.setAttribute('role', 'tabpanel');
-        pane.setAttribute('aria-labelledby', button.id);
-        pane.tabIndex = 0;
-        group.nodes.forEach(node => pane.append(node));
-        // A tab already supplies the reveal control for these short notes.
-        pane.querySelectorAll('details.special-note, details.score-details').forEach(node => { node.open = true; });
-        group.pane = pane;
-        tabs.append(button);
-        panes.append(pane);
-        return button;
+    return groups;
+  }
+
+  // Click selects a tab; arrow keys wrap around and Home/End jump to the first/last tab.
+  function bindReadingTabEvents(buttons, activate) {
+    buttons.forEach((button, index) => {
+      button.addEventListener('click', () => activate(index));
+      button.addEventListener('keydown', event => {
+        const offset = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0;
+        if (!offset && event.key !== 'Home' && event.key !== 'End') return;
+        event.preventDefault();
+        const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 : (index + offset + buttons.length) % buttons.length;
+        activate(next, true);
       });
-      const transition = createContentTransition(panes);
-      let currentIndex = -1;
-      activate = (index, focus = false) => {
-        if (index !== currentIndex) {
-          transition(() => {
-            groups.forEach((group, i) => {
-              group.pane.hidden = i !== index;
-              buttons[i].setAttribute('aria-selected', String(i === index));
-              buttons[i].tabIndex = i === index ? 0 : -1;
-            });
-          }, index - currentIndex, currentIndex >= 0);
-          currentIndex = index;
-        }
-        if (focus) buttons[index].focus({ preventScroll: true });
-      };
-      buttons.forEach((button, index) => {
-        button.addEventListener('click', () => activate(index));
-        button.addEventListener('keydown', event => {
-          const offset = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0;
-          if (!offset && event.key !== 'Home' && event.key !== 'End') return;
-          event.preventDefault();
-          const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 : (index + offset + buttons.length) % buttons.length;
-          activate(next, true);
-        });
-      });
-      root.append(tabs, panes);
-      activate(0);
-      root.classList.add('reading-grouped');
-    }
+    });
+  }
+
+  // Builds the tablist and panes for the groups, moves the nodes into them and returns activate(index, focus).
+  function buildReadingTabs(root, page, groups) {
+    const tabs = createTextElement('div', 'reading-tabs');
+    tabs.setAttribute('role', 'tablist');
+    tabs.setAttribute('aria-label', '选择查看内容');
+    const panes = createTextElement('div', 'reading-panes');
+    const unique = `reading-${page}-${root.classList.contains('guide-panel') ? 'card' : 'page'}`;
+    const buttons = groups.map((group, index) => {
+      const button = createTextElement('button', '', group.label);
+      button.type = 'button';
+      button.id = `${unique}-tab-${index}`;
+      button.setAttribute('role', 'tab');
+      button.setAttribute('aria-controls', `${unique}-pane-${index}`);
+      const pane = createTextElement('div', 'reading-pane');
+      pane.id = `${unique}-pane-${index}`;
+      pane.setAttribute('role', 'tabpanel');
+      pane.setAttribute('aria-labelledby', button.id);
+      pane.tabIndex = 0;
+      group.nodes.forEach(node => pane.append(node));
+      // A tab already supplies the reveal control for these short notes.
+      pane.querySelectorAll('details.special-note, details.score-details').forEach(node => { node.open = true; });
+      group.pane = pane;
+      tabs.append(button);
+      panes.append(pane);
+      return button;
+    });
+    const transition = createContentTransition(panes);
+    let currentIndex = -1;
+    const activate = (index, focus = false) => {
+      if (index !== currentIndex) {
+        transition(() => {
+          groups.forEach((group, i) => {
+            group.pane.hidden = i !== index;
+            buttons[i].setAttribute('aria-selected', String(i === index));
+            buttons[i].tabIndex = i === index ? 0 : -1;
+          });
+        }, index - currentIndex, currentIndex >= 0);
+        currentIndex = index;
+      }
+      if (focus) buttons[index].focus({ preventScroll: true });
+    };
+    bindReadingTabEvents(buttons, activate);
+    root.append(tabs, panes);
+    activate(0);
+    root.classList.add('reading-grouped');
+    return activate;
+  }
+
+  // Folds each section's intro paragraph into a collapsed "reading notes" disclosure.
+  function foldSectionDescriptions(root) {
     root.querySelectorAll('.section-heading > p').forEach(description => {
       const note = createTextElement('details', 'reading-context');
       note.append(createTextElement('summary', '', '阅读说明与核对依据'));
       description.before(note);
       note.append(description);
     });
-    initTimelineCards(root);
-    initApplicationSteps(root);
+  }
+
+  // Exposes root.guideReveal(hash): opens the tab and any <details> that contain the target id.
+  function installGuideReveal(root, groups, activate) {
     root.guideReveal = hash => {
       if (!hash) { root.resetTimeline?.(); return; }
       let id;
@@ -1010,79 +1061,125 @@
     };
   }
 
+  // Group existing source content, so the full-page and card views stay in sync.
+  function initReadingGroups(root, page) {
+    const groups = collectReadingGroups(root, page);
+    const activate = groups.length > 1 ? buildReadingTabs(root, page, groups) : null;
+    foldSectionDescriptions(root);
+    initTimelineCards(root);
+    initApplicationSteps(root);
+    installGuideReveal(root, groups, activate);
+  }
+
+  /**
+   * Compact timeline with a single-node detail view.
+   *
+   * Replaces the long timeline list with launch buttons, shows one node's task body in a
+   * detail pane (animated), and temporarily restores the full list while printing. Exposes
+   * root.resetTimeline so deep links and card reopening can return to the list.
+   */
+  class TimelineCards {
+    /**
+     * @param {HTMLElement|Document} root Page or card panel that contains the timeline list.
+     * @param {HTMLElement} list The .timeline-list element.
+     */
+    constructor(root, list) {
+      this._root = root;
+      this._list = list;
+      this._transition = createContentTransition(list.parentElement);
+      this._toolbar = root.querySelector('.timeline-toolbar');
+      this._selected = null;
+      this._printState = null;
+      this._buildDetail();
+      list.classList.add('timeline-compact');
+      list.after(this._detail);
+      root.resetTimeline = () => this._reset();
+      this._bindPrint();
+      this._bindBack();
+      this._buildLaunchButtons();
+    }
+
+    _buildDetail() {
+      this._detail = createTextElement('div', 'timeline-detail');
+      this._detail.hidden = true;
+      this._back = createTextElement('button', 'text-button', '← 返回节点');
+      this._back.type = 'button';
+      this._back.dataset.timelineBack = '';
+      this._content = createTextElement('div', 'timeline-detail-content');
+      this._detail.append(this._back, this._content);
+    }
+
+    _showList() {
+      this._selected.item.append(this._selected.body);
+      this._detail.hidden = true;
+      this._list.hidden = false;
+      if (this._toolbar) this._toolbar.hidden = false;
+    }
+
+    _reset() {
+      if (!this._selected) return;
+      this._showList();
+      this._selected = null;
+    }
+
+    // Printing shows every node in the list; the detail view returns afterwards.
+    _bindPrint() {
+      window.addEventListener('beforeprint', () => {
+        if (this._printState || !this._root.isConnected) return;
+        this._printState = { hidden: Array.from(this._list.children).filter(item => item.hidden) };
+        this._printState.hidden.forEach(item => { item.hidden = false; });
+        if (this._selected) {
+          this._selected.item.append(this._selected.body);
+          this._list.hidden = false;
+          this._detail.hidden = true;
+        }
+      });
+      window.addEventListener('afterprint', () => {
+        if (!this._printState) return;
+        this._printState.hidden.forEach(item => { item.hidden = true; });
+        if (this._selected) {
+          this._content.replaceChildren(this._selected.item.querySelector('.timeline-date').cloneNode(true), this._selected.body);
+          this._list.hidden = true;
+          this._detail.hidden = false;
+        }
+        this._printState = null;
+      });
+    }
+
+    _bindBack() {
+      this._back.addEventListener('click', () => {
+        if (!this._selected) return;
+        this._transition(() => this._showList(), -1);
+        this._selected.button.focus({ preventScroll: true });
+        this._selected = null;
+      });
+    }
+
+    _buildLaunchButtons() {
+      this._list.querySelectorAll('.timeline-item').forEach(item => {
+        const body = item.querySelector('.timeline-body');
+        const button = createTextElement('button', 'timeline-launch');
+        button.type = 'button';
+        button.append(createTextElement('strong', '', item.dataset.label || body.querySelector('h3').textContent),
+          createTextElement('span', '', '查看任务 ↗'));
+        item.append(button);
+        button.addEventListener('click', () => {
+          this._selected = { item, body, button };
+          this._transition(() => {
+            this._content.replaceChildren(item.querySelector('.timeline-date').cloneNode(true), body);
+            this._list.hidden = true;
+            if (this._toolbar) this._toolbar.hidden = true;
+            this._detail.hidden = false;
+          });
+          this._back.focus({ preventScroll: true });
+        });
+      });
+    }
+  }
+
   function initTimelineCards(root) {
     const list = root.querySelector('.timeline-list');
-    if (!list) return;
-    const transition = createContentTransition(list.parentElement);
-    list.classList.add('timeline-compact');
-    const toolbar = root.querySelector('.timeline-toolbar');
-    const detail = createTextElement('div', 'timeline-detail');
-    detail.hidden = true;
-    const back = createTextElement('button', 'text-button', '← 返回节点');
-    back.type = 'button';
-    back.dataset.timelineBack = '';
-    const content = createTextElement('div', 'timeline-detail-content');
-    detail.append(back, content);
-    list.after(detail);
-    let selected = null;
-    let printState = null;
-    root.resetTimeline = () => {
-      if (!selected) return;
-      selected.item.append(selected.body);
-      detail.hidden = true;
-      list.hidden = false;
-      if (toolbar) toolbar.hidden = false;
-      selected = null;
-    };
-    window.addEventListener('beforeprint', () => {
-      if (printState || !root.isConnected) return;
-      printState = { hidden: Array.from(list.children).filter(item => item.hidden) };
-      printState.hidden.forEach(item => { item.hidden = false; });
-      if (selected) {
-        selected.item.append(selected.body);
-        list.hidden = false;
-        detail.hidden = true;
-      }
-    });
-    window.addEventListener('afterprint', () => {
-      if (!printState) return;
-      printState.hidden.forEach(item => { item.hidden = true; });
-      if (selected) {
-        content.replaceChildren(selected.item.querySelector('.timeline-date').cloneNode(true), selected.body);
-        list.hidden = true;
-        detail.hidden = false;
-      }
-      printState = null;
-    });
-    back.addEventListener('click', () => {
-      if (!selected) return;
-      transition(() => {
-        selected.item.append(selected.body);
-        detail.hidden = true;
-        list.hidden = false;
-        if (toolbar) toolbar.hidden = false;
-      }, -1);
-      selected.button.focus({ preventScroll: true });
-      selected = null;
-    });
-    list.querySelectorAll('.timeline-item').forEach(item => {
-      const body = item.querySelector('.timeline-body');
-      const button = createTextElement('button', 'timeline-launch');
-      button.type = 'button';
-      button.append(createTextElement('strong', '', item.dataset.label || body.querySelector('h3').textContent),
-        createTextElement('span', '', '查看任务 ↗'));
-      item.append(button);
-      button.addEventListener('click', () => {
-        selected = { item, body, button };
-        transition(() => {
-          content.replaceChildren(item.querySelector('.timeline-date').cloneNode(true), body);
-          list.hidden = true;
-          if (toolbar) toolbar.hidden = true;
-          detail.hidden = false;
-        });
-        back.focus({ preventScroll: true });
-      });
-    });
+    if (list) new TimelineCards(root, list);
   }
 
   function initApplicationSteps(root) {
