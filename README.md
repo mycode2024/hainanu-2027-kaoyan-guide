@@ -12,7 +12,7 @@
 
 ### 发布到 Vercel
 
-项目提供独立的云函数入口 `api/index.js`，导出请求处理函数；本地仍使用 `server.cjs` 启动。不要将浏览器脚本 `app.js` 或导出启动工具的 `server.cjs` 指定为 Vercel 函数入口，否则可能出现 `Invalid export` / `FUNCTION_INVOCATION_FAILED`。
+项目提供独立的云函数入口 `api/index.js`，导出请求处理函数；本地仍使用 `server.cjs` 启动。不要将浏览器脚本 `app.js`、`guide-core.js`、`guide-dom.js`、`guide-notices.js` 或导出启动工具的 `server.cjs` 指定为 Vercel 函数入口，否则可能出现 `Invalid export` / `FUNCTION_INVOCATION_FAILED`。
 
 1. 把本次改动连同 `api/`、`src/vercel-app.cjs`、`scripts/build-vercel.cjs`、`vercel.json` 和 `.vercelignore` 提交到已连接的 GitHub 仓库。
 2. Vercel 项目的 Root Directory 选本项目根目录，Framework Preset 选 **Other**。构建命令为 `npm run build:vercel`，Output Directory 为 `public`（仓库的 `vercel.json` 已声明）。移除以前手动设置的错误入口或路由。

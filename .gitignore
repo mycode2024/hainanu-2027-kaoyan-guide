@@ -5,8 +5,8 @@ node_modules/
 public/
 .vercel/
 coverage/
-artifacts/admissions-2025/
-artifacts/admissions-2026/
+artifacts/
+tmp/
 npm-debug.log*
 .worktrees/
 
