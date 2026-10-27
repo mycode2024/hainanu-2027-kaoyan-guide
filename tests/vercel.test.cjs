@@ -118,7 +118,7 @@ test('Vercel static build publishes only website files with truthful cloud copy'
   t.after(() => fs.rm(output, { recursive: true, force: true }));
   execFileSync(process.execPath, [path.join(root, 'scripts/build-vercel.cjs'), output], { cwd: root });
   const files = await fs.readdir(output);
-  assert.deepEqual(files.sort(), ['app.js', 'styles.css', 'index.html', 'programs.html', 'scores.html', 'preparation.html', 'timeline.html', 'application.html', 'materials.html', 'updates.html', 'sources.html'].sort());
+  assert.deepEqual(files.sort(), ['guide-core.js', 'app.js', 'styles.css', 'index.html', 'programs.html', 'scores.html', 'preparation.html', 'timeline.html', 'application.html', 'materials.html', 'updates.html', 'sources.html'].sort());
   for (const file of files.filter(file => file.endsWith('.html'))) {
     const html = await fs.readFile(path.join(output, file), 'utf8');
     assert.match(html, /data-hosting="vercel"/);

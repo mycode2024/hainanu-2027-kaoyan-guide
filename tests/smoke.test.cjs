@@ -543,6 +543,7 @@ test('serves the complete offline site and nine focused guide pages with shared 
 
   for (const [pathname, contentType, marker] of [
     ['/styles.css', 'text/css; charset=utf-8', ':root'],
+    ['/guide-core.js', 'text/javascript; charset=utf-8', 'HnuGuideCore'],
     ['/app.js', 'text/javascript; charset=utf-8', 'getTimelineState']
   ]) {
     const response = await fetch(`${base}${pathname}`);
