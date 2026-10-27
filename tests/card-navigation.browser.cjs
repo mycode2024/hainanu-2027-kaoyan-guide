@@ -61,7 +61,7 @@ async function assertContentFits(label) {
   assert.deepEqual(overflows, [], `${label}: content must fit inside its card`);
 }
 async function key(value) {
-  const windowsVirtualKeyCode = { Escape: 27, Tab: 9, ArrowRight: 39, Enter: 13 }[value];
+  const windowsVirtualKeyCode = { Escape: 27, Tab: 9, ArrowRight: 39, Enter: 13, ArrowDown: 40, ArrowUp: 38, Home: 36, End: 35 }[value];
   await send('Input.dispatchKeyEvent', { type: 'keyDown', key: value, code: value, windowsVirtualKeyCode });
   await send('Input.dispatchKeyEvent', { type: 'keyUp', key: value, code: value, windowsVirtualKeyCode });
 }
@@ -307,6 +307,32 @@ async function key(value) {
         assert.ok(Math.abs(menuPosition.horizontalOffset) <= 1, `filter menu must align with its trigger at ${width}px: ${JSON.stringify(menuPosition)}`);
         assert.ok(Math.abs(menuPosition.gap - 8) <= 1, `filter menu must stay next to its trigger at ${width}px`);
         assert.equal(menuPosition.visible && menuPosition.clickable, true, 'filter options must be visible and clickable');
+        const activeOption = () => evaluate(`document.querySelector('.guide-panel #updates-year-trigger').getAttribute('aria-activedescendant')`);
+        const optionCount = await evaluate(`document.querySelectorAll('.guide-panel #updates-year-listbox [role="option"]').length`);
+        assert.ok(optionCount >= 2, 'the year filter needs at least two options to test keyboard navigation');
+        assert.equal(await activeOption(), 'updates-year-option-0', 'the open menu must start on the selected option');
+        await key('ArrowDown');
+        assert.equal(await activeOption(), 'updates-year-option-1', 'ArrowDown must move the active option');
+        await key('End');
+        assert.equal(await activeOption(), `updates-year-option-${optionCount - 1}`, 'End must jump to the last option');
+        await key('ArrowDown');
+        assert.equal(await activeOption(), `updates-year-option-${optionCount - 1}`, 'ArrowDown must stop at the last option');
+        await key('Home');
+        assert.equal(await activeOption(), 'updates-year-option-0', 'Home must jump to the first option');
+        await key('ArrowUp');
+        assert.equal(await activeOption(), 'updates-year-option-0', 'ArrowUp must stop at the first option');
+        await key('ArrowDown');
+        await key('Enter');
+        assert.equal(await evaluate(`document.querySelector('.guide-panel #updates-year').selectedIndex`), 1, 'Enter must commit the active option to the native select');
+        assert.equal(await evaluate(`document.querySelector('.guide-panel #updates-year-trigger').getAttribute('aria-expanded')`), 'false', 'committing must close the menu');
+        await key('Enter');
+        await key('Home');
+        await key('Enter');
+        assert.equal(await evaluate(`document.querySelector('.guide-panel #updates-year').selectedIndex`), 0, 'Enter on a reopened menu must restore the first option');
+        await evaluate(`document.querySelector('.guide-panel #updates-year-trigger').click()`);
+        await key('Escape');
+        assert.equal(await evaluate(`document.querySelector('.guide-panel #updates-year-trigger').getAttribute('aria-expanded')`), 'false', 'Escape must close the open menu');
+        await evaluate(`document.querySelector('.guide-panel #updates-year-trigger').click()`);
         await key('Escape');
         assert.equal(await evaluate(`document.querySelector('.guide-dialog').open`), true);
         await close();

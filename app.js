@@ -60,180 +60,259 @@
     return element;
   }
 
-  function enhanceNoticeSelects(selects, scope = document) {
-    const widgets = [];
-    selects.filter((select) => select?.options?.length).forEach((select) => {
-      const options = Array.from(select.options);
-      const label = scope.querySelector(`label[for="${select.id}"]`);
-      const root = createTextElement('div', 'filter-select');
-      const trigger = createTextElement('button', 'filter-select-trigger');
+  /**
+   * Accessible combobox that replaces a native <select> in the notice filters.
+   *
+   * Owns one trigger button and one floating listbox menu, keeps them in sync with the
+   * hidden native select, and positions the menu relative to the viewport (or to a
+   * transformed dialog card). Instances are created by enhanceNoticeSelects, which
+   * shares the sibling list so opening one menu closes the others.
+   */
+  class NoticeSelect {
+    /**
+     * @param {HTMLSelectElement} select Native select that stays as the source of truth.
+     * @param {Document|HTMLElement} scope Document or dialog root that contains the select.
+     * @param {NoticeSelect[]} siblings Shared list of widgets created for the same scope.
+     */
+    constructor(select, scope, siblings) {
+      this._select = select;
+      this._scope = scope;
+      this._siblings = siblings;
+      this._options = Array.from(select.options);
+      this._open = false;
+      this._activeIndex = Math.max(0, select.selectedIndex);
+      this._search = '';
+      this._lastKeyAt = 0;
+      this._frame = 0;
+      this._buildShell();
+      this._buildRows();
+      this._bindEvents();
+      this._sync();
+    }
+
+    /** Wrapper element placed after the native select. */
+    get root() { return this._root; }
+
+    /** Floating listbox element appended to the document body or dialog. */
+    get menu() { return this._menu; }
+
+    _buildShell() {
+      const select = this._select;
+      const label = this._scope.querySelector(`label[for="${select.id}"]`);
+      this._root = createTextElement('div', 'filter-select');
+      this._trigger = createTextElement('button', 'filter-select-trigger');
+      const trigger = this._trigger;
       trigger.type = 'button';
       trigger.id = `${select.id}-trigger`;
       trigger.setAttribute('role', 'combobox');
       trigger.setAttribute('aria-haspopup', 'listbox');
       trigger.setAttribute('aria-expanded', 'false');
-      const value = createTextElement('span', 'filter-select-value');
-      value.id = `${select.id}-value`;
+      this._value = createTextElement('span', 'filter-select-value');
+      this._value.id = `${select.id}-value`;
       const arrow = createTextElement('span', 'filter-select-arrow');
       arrow.setAttribute('aria-hidden', 'true');
-      trigger.append(value, arrow);
-      const menu = createTextElement('div', 'filter-select-menu');
-      menu.id = `${select.id}-listbox`;
-      menu.setAttribute('role', 'listbox');
-      menu.setAttribute('aria-hidden', 'true');
-      trigger.setAttribute('aria-controls', menu.id);
+      trigger.append(this._value, arrow);
+      this._menu = createTextElement('div', 'filter-select-menu');
+      this._menu.id = `${select.id}-listbox`;
+      this._menu.setAttribute('role', 'listbox');
+      this._menu.setAttribute('aria-hidden', 'true');
+      trigger.setAttribute('aria-controls', this._menu.id);
       if (label) {
         label.id ||= `${select.id}-label`;
         label.htmlFor = trigger.id;
-        trigger.setAttribute('aria-labelledby', `${label.id} ${value.id}`);
-        menu.setAttribute('aria-labelledby', label.id);
+        trigger.setAttribute('aria-labelledby', `${label.id} ${this._value.id}`);
+        this._menu.setAttribute('aria-labelledby', label.id);
       }
-      root.append(trigger);
-      select.after(root);
-      (scope === document ? document.body : scope).append(menu);
+      this._root.append(trigger);
+      select.after(this._root);
+      (this._scope === document ? document.body : this._scope).append(this._menu);
       select.hidden = true;
-      let open = false;
-      let activeIndex = Math.max(0, select.selectedIndex);
-      let search = '';
-      let lastKeyAt = 0;
+    }
 
-      const rows = options.map((option, index) => {
+    _buildRows() {
+      this._rows = this._options.map((option, index) => {
         const row = createTextElement('div', 'filter-select-option');
-        row.id = `${select.id}-option-${index}`;
+        row.id = `${this._select.id}-option-${index}`;
         row.setAttribute('role', 'option');
         const check = createTextElement('span', 'filter-select-check', '✓');
         check.setAttribute('aria-hidden', 'true');
         row.append(createTextElement('span', '', option.textContent), check);
         row.addEventListener('pointerdown', (event) => event.preventDefault());
-        row.addEventListener('click', () => { activeIndex = index; commit(); trigger.focus(); });
-        row.addEventListener('pointermove', () => { activeIndex = index; renderActive(); });
-        menu.append(row);
+        row.addEventListener('click', () => { this._activeIndex = index; this._commit(); this._trigger.focus(); });
+        row.addEventListener('pointermove', () => { this._activeIndex = index; this._renderActive(); });
+        this._menu.append(row);
         return row;
       });
+    }
 
-      function renderActive() {
-        rows.forEach((row, index) => { row.dataset.active = String(index === activeIndex); });
-        if (open) trigger.setAttribute('aria-activedescendant', rows[activeIndex].id);
+    _bindEvents() {
+      this._trigger.addEventListener('click', () => (this._open ? this.close() : this._expand()));
+      this._trigger.addEventListener('keydown', (event) => this._onKeydown(event));
+      this._select.addEventListener('change', () => this._sync());
+    }
+
+    _renderActive() {
+      this._rows.forEach((row, index) => { row.dataset.active = String(index === this._activeIndex); });
+      if (this._open) this._trigger.setAttribute('aria-activedescendant', this._rows[this._activeIndex].id);
+    }
+
+    _sync() {
+      const select = this._select;
+      this._value.textContent = this._options[select.selectedIndex]?.textContent || '';
+      this._activeIndex = Math.max(0, select.selectedIndex);
+      this._rows.forEach((row, index) => row.setAttribute('aria-selected', String(index === select.selectedIndex)));
+      this._renderActive();
+    }
+
+    /** Closes the menu and cancels any transform-tracking animation frame. */
+    close() {
+      this._open = false;
+      if (this._frame && typeof window.cancelAnimationFrame === 'function') window.cancelAnimationFrame(this._frame);
+      this._frame = 0;
+      this._root.dataset.open = this._menu.dataset.open = 'false';
+      this._trigger.setAttribute('aria-expanded', 'false');
+      this._trigger.removeAttribute('aria-activedescendant');
+      this._menu.setAttribute('aria-hidden', 'true');
+      this._search = '';
+    }
+
+    _revealActive() {
+      const row = this._rows[this._activeIndex];
+      const menu = this._menu;
+      if (row.offsetTop < menu.scrollTop) menu.scrollTop = row.offsetTop;
+      else if (row.offsetTop + row.offsetHeight > menu.scrollTop + menu.clientHeight) {
+        menu.scrollTop = row.offsetTop + row.offsetHeight - menu.clientHeight;
       }
-      function sync() {
-        value.textContent = options[select.selectedIndex]?.textContent || '';
-        activeIndex = Math.max(0, select.selectedIndex);
-        rows.forEach((row, index) => row.setAttribute('aria-selected', String(index === select.selectedIndex)));
-        renderActive();
+    }
+
+    // Maps viewport coordinates into a transformed dialog's local space; identity otherwise.
+    _readDialogTransform() {
+      const dialog = this._scope !== document ? this._scope.closest('dialog') : null;
+      const transformed = Boolean(dialog && typeof window.getComputedStyle === 'function' && window.getComputedStyle(dialog).transform !== 'none');
+      if (!transformed) return { transformed, scaleX: 1, scaleY: 1, originX: 0, originY: 0 };
+      const dialogRect = dialog.getBoundingClientRect();
+      const scaleX = dialog.offsetWidth ? dialogRect.width / dialog.offsetWidth : 1;
+      const scaleY = dialog.offsetHeight ? dialogRect.height / dialog.offsetHeight : 1;
+      return {
+        transformed,
+        scaleX,
+        scaleY,
+        originX: dialogRect.left + (dialog.clientLeft || 0) * scaleX,
+        originY: dialogRect.top + (dialog.clientTop || 0) * scaleY
+      };
+    }
+
+    // Places the menu below or above the trigger; returns whether the scope is transformed.
+    _positionMenu() {
+      const menu = this._menu;
+      const rect = this._trigger.getBoundingClientRect();
+      const desired = Math.min(this._options.length * 44 + 16, 296);
+      const below = window.innerHeight - rect.bottom - 16;
+      const above = rect.top - 16;
+      const upward = below < desired && above > below;
+      const width = Math.min(rect.width, window.innerWidth - 24);
+      const left = Math.max(12, Math.min(rect.left, window.innerWidth - width - 12));
+      const maxHeight = Math.min(desired, Math.max(0, upward ? above : below));
+      const { transformed, scaleX, scaleY, originX, originY } = this._readDialogTransform();
+      menu.style.width = `${width / scaleX}px`;
+      menu.style.left = `${(left - originX) / scaleX}px`;
+      menu.style.maxHeight = `${maxHeight / scaleY}px`;
+      const top = upward ? rect.top - menu.offsetHeight * scaleY - 8 : rect.bottom + 8;
+      menu.style.top = `${(top - originY) / scaleY}px`;
+      menu.dataset.direction = upward ? 'up' : 'down';
+      return transformed;
+    }
+
+    /**
+     * Re-anchors an open menu, or closes it once the trigger scrolls out of view.
+     * @returns {boolean} True while the menu is open inside a transformed dialog.
+     */
+    reposition() {
+      if (!this._open) return false;
+      const rect = this._trigger.getBoundingClientRect();
+      const scrollBox = this._scope !== document ? this._scope.closest('.guide-dialog-body') : null;
+      const bounds = scrollBox ? scrollBox.getBoundingClientRect() : { top: 0, bottom: window.innerHeight };
+      if (rect.bottom <= Math.max(0, bounds.top) || rect.top >= Math.min(window.innerHeight, bounds.bottom)) {
+        this.close();
+        return false;
       }
-      let frame = 0;
-      function close() {
-        open = false;
-        if (frame && typeof window.cancelAnimationFrame === 'function') window.cancelAnimationFrame(frame);
-        frame = 0;
-        root.dataset.open = menu.dataset.open = 'false';
-        trigger.setAttribute('aria-expanded', 'false');
-        trigger.removeAttribute('aria-activedescendant');
-        menu.setAttribute('aria-hidden', 'true');
-        search = '';
+      return this._positionMenu();
+    }
+
+    _trackTransform() {
+      this._frame = 0;
+      if (this.reposition() && typeof window.requestAnimationFrame === 'function') {
+        this._frame = window.requestAnimationFrame(() => this._trackTransform());
       }
-      function revealActive() {
-        const row = rows[activeIndex];
-        if (row.offsetTop < menu.scrollTop) menu.scrollTop = row.offsetTop;
-        else if (row.offsetTop + row.offsetHeight > menu.scrollTop + menu.clientHeight) {
-          menu.scrollTop = row.offsetTop + row.offsetHeight - menu.clientHeight;
-        }
+    }
+
+    _expand() {
+      this._siblings.forEach((widget) => widget.close());
+      this._sync();
+      const transformed = this._positionMenu();
+      this._open = true;
+      this._root.dataset.open = this._menu.dataset.open = 'true';
+      this._trigger.setAttribute('aria-expanded', 'true');
+      this._menu.setAttribute('aria-hidden', 'false');
+      this._renderActive();
+      this._revealActive();
+      if (transformed && !this._frame && typeof window.requestAnimationFrame === 'function') {
+        this._frame = window.requestAnimationFrame(() => this._trackTransform());
       }
-      function positionMenu() {
-        const rect = trigger.getBoundingClientRect();
-        const desired = Math.min(options.length * 44 + 16, 296);
-        const below = window.innerHeight - rect.bottom - 16;
-        const above = rect.top - 16;
-        const upward = below < desired && above > below;
-        const width = Math.min(rect.width, window.innerWidth - 24);
-        const left = Math.max(12, Math.min(rect.left, window.innerWidth - width - 12));
-        const maxHeight = Math.min(desired, Math.max(0, upward ? above : below));
-        const dialog = scope !== document ? scope.closest('dialog') : null;
-        const transformed = Boolean(dialog && typeof window.getComputedStyle === 'function' && window.getComputedStyle(dialog).transform !== 'none');
-        const dialogRect = transformed ? dialog.getBoundingClientRect() : null;
-        const scaleX = transformed && dialog.offsetWidth ? dialogRect.width / dialog.offsetWidth : 1;
-        const scaleY = transformed && dialog.offsetHeight ? dialogRect.height / dialog.offsetHeight : 1;
-        const originX = transformed ? dialogRect.left + (dialog.clientLeft || 0) * scaleX : 0;
-        const originY = transformed ? dialogRect.top + (dialog.clientTop || 0) * scaleY : 0;
-        menu.style.width = `${width / scaleX}px`;
-        menu.style.left = `${(left - originX) / scaleX}px`;
-        menu.style.maxHeight = `${maxHeight / scaleY}px`;
-        const top = upward ? rect.top - menu.offsetHeight * scaleY - 8 : rect.bottom + 8;
-        menu.style.top = `${(top - originY) / scaleY}px`;
-        menu.dataset.direction = upward ? 'up' : 'down';
-        return transformed;
+    }
+
+    _commit() {
+      const select = this._select;
+      const changed = select.value !== this._options[this._activeIndex].value;
+      select.value = this._options[this._activeIndex].value;
+      this._sync();
+      this.close();
+      if (changed) select.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+
+    _moveActive(key) {
+      const wasOpen = this._open;
+      if (!this._open) this._expand();
+      if (key === 'Home') this._activeIndex = 0;
+      else if (key === 'End') this._activeIndex = this._options.length - 1;
+      else if (wasOpen) this._activeIndex = Math.max(0, Math.min(this._options.length - 1, this._activeIndex + (key === 'ArrowDown' ? 1 : -1)));
+      this._renderActive();
+      this._revealActive();
+    }
+
+    // Type-ahead: consecutive keystrokes within 600ms extend the search prefix.
+    _typeAhead(key) {
+      if (!this._open) this._expand();
+      const now = Date.now();
+      this._search = (now - this._lastKeyAt < 600 ? this._search : '') + key.toLocaleLowerCase();
+      this._lastKeyAt = now;
+      const match = this._options.findIndex((option) => option.textContent.trim().toLocaleLowerCase().startsWith(this._search));
+      if (match >= 0) { this._activeIndex = match; this._renderActive(); this._revealActive(); }
+    }
+
+    _onKeydown(event) {
+      if (event.key === 'Tab') { if (this._open) this._commit(); return; }
+      if (event.key === 'Escape') {
+        if (this._open) { event.preventDefault(); event.stopPropagation(); this.close(); }
+        return;
       }
-      function reposition() {
-        if (!open) return false;
-        const rect = trigger.getBoundingClientRect();
-        const scrollBox = scope !== document ? scope.closest('.guide-dialog-body') : null;
-        const bounds = scrollBox ? scrollBox.getBoundingClientRect() : { top: 0, bottom: window.innerHeight };
-        if (rect.bottom <= Math.max(0, bounds.top) || rect.top >= Math.min(window.innerHeight, bounds.bottom)) {
-          close();
-          return false;
-        }
-        return positionMenu();
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        if (this._open) this._commit(); else this._expand();
+        return;
       }
-      function trackTransform() {
-        frame = 0;
-        if (reposition() && typeof window.requestAnimationFrame === 'function') {
-          frame = window.requestAnimationFrame(trackTransform);
-        }
+      if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
+        event.preventDefault();
+        this._moveActive(event.key);
+      } else if (event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey && !event.isComposing) {
+        event.preventDefault();
+        this._typeAhead(event.key);
       }
-      function expand() {
-        widgets.forEach((widget) => widget.close());
-        sync();
-        const transformed = positionMenu();
-        open = true;
-        root.dataset.open = menu.dataset.open = 'true';
-        trigger.setAttribute('aria-expanded', 'true');
-        menu.setAttribute('aria-hidden', 'false');
-        renderActive();
-        revealActive();
-        if (transformed && !frame && typeof window.requestAnimationFrame === 'function') {
-          frame = window.requestAnimationFrame(trackTransform);
-        }
-      }
-      function commit() {
-        const changed = select.value !== options[activeIndex].value;
-        select.value = options[activeIndex].value;
-        sync();
-        close();
-        if (changed) select.dispatchEvent(new Event('change', { bubbles: true }));
-      }
-      trigger.addEventListener('click', () => open ? close() : expand());
-      trigger.addEventListener('keydown', (event) => {
-        if (event.key === 'Tab') { if (open) commit(); return; }
-        if (event.key === 'Escape') { if (open) { event.preventDefault(); event.stopPropagation(); close(); } return; }
-        if (event.key === 'Enter' || event.key === ' ') {
-          event.preventDefault();
-          if (open) commit(); else expand();
-          return;
-        }
-        if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
-          event.preventDefault();
-          const wasOpen = open;
-          if (!open) expand();
-          if (event.key === 'Home') activeIndex = 0;
-          else if (event.key === 'End') activeIndex = options.length - 1;
-          else if (wasOpen) activeIndex = Math.max(0, Math.min(options.length - 1, activeIndex + (event.key === 'ArrowDown' ? 1 : -1)));
-          renderActive();
-          revealActive();
-        } else if (event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey && !event.isComposing) {
-          event.preventDefault();
-          if (!open) expand();
-          const now = Date.now();
-          search = (now - lastKeyAt < 600 ? search : '') + event.key.toLocaleLowerCase();
-          lastKeyAt = now;
-          const match = options.findIndex((option) => option.textContent.trim().toLocaleLowerCase().startsWith(search));
-          if (match >= 0) { activeIndex = match; renderActive(); revealActive(); }
-        }
-      });
-      select.addEventListener('change', sync);
-      widgets.push({ root, menu, close, reposition });
-      sync();
-    });
-    if (!widgets.length) return;
+    }
+  }
+
+  // Document-level listeners shared by every widget of one enhanced scope.
+  function bindNoticeSelectGlobalListeners(widgets, scope) {
     const dismissOutside = (event) => widgets.forEach((widget) => {
       if (!widget.root.contains(event.target) && !widget.menu.contains(event.target)) widget.close();
     });
@@ -248,6 +327,14 @@
     document.addEventListener('animationend', (event) => {
       if (scope !== document && event.target.contains(scope)) widgets.forEach((widget) => widget.reposition());
     });
+  }
+
+  function enhanceNoticeSelects(selects, scope = document) {
+    const widgets = [];
+    selects.filter((select) => select?.options?.length).forEach((select) => {
+      widgets.push(new NoticeSelect(select, scope, widgets));
+    });
+    if (widgets.length) bindNoticeSelectGlobalListeners(widgets, scope);
   }
 
   function initOfficialUpdates(root = document) {
