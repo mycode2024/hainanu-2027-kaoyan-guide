@@ -68,7 +68,12 @@ test('cloud GET waits for due refresh and cloud POST accepts only configured HTT
   const limited = await post(base, 'https://guide.vercel.app');
   assert.equal(limited.statusCode, 429);
   assert.equal(updateService.refreshes, 2);
-  assert.equal((await fetch(`${base}/api/index?endpoint=unknown`)).status, 404);
+  const notFound = await fetch(`${base}/api/index?endpoint=unknown`);
+  assert.equal(notFound.status, 404);
+  assert.equal(notFound.headers.get('cache-control'), 'no-store');
+  assert.equal(notFound.headers.get('x-content-type-options'), 'nosniff');
+  assert.equal(notFound.headers.get('referrer-policy'), 'no-referrer');
+  assert.match(notFound.headers.get('content-security-policy') || '', /default-src 'self'/);
 });
 
 test('a platform-consumed request body completes normally and still enforces the size limit', async t => {
@@ -95,6 +100,10 @@ test('cloud initialization failure returns JSON and can recover on a later invoc
   const response = await fetch(`${base}/api/index?endpoint=health`);
   assert.equal(response.status, 503);
   assert.match(response.headers.get('content-type'), /json/);
+  assert.equal(response.headers.get('cache-control'), 'no-store');
+  assert.equal(response.headers.get('x-content-type-options'), 'nosniff');
+  assert.equal(response.headers.get('referrer-policy'), 'no-referrer');
+  assert.match(response.headers.get('content-security-policy') || '', /default-src 'self'/);
   assert.equal((await fetch(`${base}/api/index?endpoint=health`)).status, 200);
 });
 
@@ -114,8 +123,13 @@ test('cloud cache stays outside the read-only deployment directory', () => {
 });
 
 test('Vercel static build publishes only website files with truthful cloud copy', async t => {
+  const { build } = require('../scripts/build-vercel.cjs');
+  await assert.rejects(() => build(root), /Unsafe Vercel output directory/);
   const output = await fs.mkdtemp(path.join(os.tmpdir(), 'hnu-public-test-'));
   t.after(() => fs.rm(output, { recursive: true, force: true }));
+  await fs.writeFile(path.join(output, 'stale-legacy.html'), 'stale', 'utf8');
+  await fs.mkdir(path.join(output, 'stale-dir'));
+  await fs.writeFile(path.join(output, 'stale-dir', 'old.js'), 'stale', 'utf8');
   execFileSync(process.execPath, [path.join(root, 'scripts/build-vercel.cjs'), output], { cwd: root });
   const files = await fs.readdir(output);
   assert.deepEqual(files.sort(), ['guide-core.js', 'guide-dom.js', 'guide-notices.js', 'app.js', 'styles.css', 'index.html', 'programs.html', 'scores.html', 'preparation.html', 'timeline.html', 'application.html', 'materials.html', 'updates.html', 'sources.html'].sort());

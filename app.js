@@ -86,8 +86,13 @@
     toggle.addEventListener('click', () => {
       setExpanded(toggle.getAttribute('aria-expanded') !== 'true');
     });
+    menu.addEventListener('click', (event) => {
+      if (event.target?.closest?.('a, button') && toggle.getAttribute('aria-expanded') === 'true') {
+        setExpanded(false);
+      }
+    });
     document.addEventListener('keydown', (event) => {
-      if (event.key !== 'Escape' || toggle.getAttribute('aria-expanded') !== 'true') return;
+      if (event.key !== 'Escape' || event.defaultPrevented || toggle.getAttribute('aria-expanded') !== 'true' || document.querySelector('dialog[open]')) return;
       setExpanded(false);
       toggle.focus();
     });
@@ -578,7 +583,11 @@
       this._viewport.replaceChildren();
       this._active = null; this._trail = [];
       this._announceChange();
-      this._opener?.focus({ preventScroll: true });
+      const focusTarget = this._opener && typeof this._opener.getClientRects === 'function'
+        && !this._opener.getClientRects().length && this._opener.closest?.('[data-site-nav-menu]')
+        ? document.querySelector('[data-site-nav-toggle]') || this._opener
+        : this._opener;
+      focusTarget?.focus({ preventScroll: true });
     }
 
     // Reopening during the exit animation resumes from the animation's current frame.
@@ -717,8 +726,8 @@
       }
       const link = event.target.closest('a[href]');
       if (!link || link.target || link.hasAttribute('download') || link.hasAttribute('data-guide-bypass')) return;
-      const url = new URL(link.href, window.location.href);
-      if (url.origin !== window.location.origin) return;
+      const url = this._parseLinkUrl(link);
+      if (!url || url.protocol !== window.location.protocol || url.origin !== window.location.origin) return;
       const page = url.pathname.split('/').pop().replace(/\.html$/, '');
       if (!GUIDE_PAGE_NAMES[page]) {
         if (url.pathname === window.location.pathname && url.hash) this._main.guideReveal(url.hash);
@@ -727,17 +736,28 @@
       if (!this._dialog.open && page === document.body.dataset.page) {
         this._main.guideReveal(url.hash); return;
       }
+      if (window.location.protocol !== 'http:' && window.location.protocol !== 'https:') return;
       event.preventDefault();
       if (!this._dialog.open) this._opener = link;
       this._show({ key: page, page, path: `/${page}.html`, hash: url.hash, title: GUIDE_PAGE_NAMES[page] });
     }
 
+    _parseLinkUrl(link) {
+      try {
+        return new URL(link.href, window.location.href);
+      } catch {
+        return null;
+      }
+    }
+
     // Marks links that will open as a dialog so assistive tech announces the popup.
     _markPopupLinks() {
+      if (window.location.protocol !== 'http:' && window.location.protocol !== 'https:') return;
       document.querySelectorAll('a[href]').forEach(link => {
-        const url = new URL(link.href, window.location.href);
+        const url = this._parseLinkUrl(link);
+        if (!url || url.origin !== window.location.origin) return;
         const page = url.pathname.split('/').pop().replace(/\.html$/, '');
-        if (url.origin === window.location.origin && GUIDE_PAGE_NAMES[page] && page !== document.body.dataset.page) link.setAttribute('aria-haspopup', 'dialog');
+        if (GUIDE_PAGE_NAMES[page] && page !== document.body.dataset.page) link.setAttribute('aria-haspopup', 'dialog');
       });
     }
   }

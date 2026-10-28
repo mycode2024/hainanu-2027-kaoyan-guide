@@ -1213,3 +1213,32 @@ test('numeric HTML entities outside the Unicode code-point range stay literal in
   assert.equal(cleanText('越界 &#x110000;'), '越界 &#x110000;');
   assert.equal(cleanText('越界 &#999999999;'), '越界 &#999999999;');
 });
+
+test('admission cycle filtering distinguishes real cycle years from codes and keeps target-year operational notices', () => {
+  const { parseOfficialList } = loadScraper();
+  const oct2026Html = `
+    <ul>
+      <li><a href="../info/1024/9301.htm">硕士研究生自命题科目202401考试大纲</a><span>2026-10-05</span></li>
+      <li><a href="../info/1024/9302.htm">海甸校区2018室硕士研究生复试考场安排</a><span>2026-03-25</span></li>
+      <li><a href="../info/1024/9303.htm">2025年与2026年硕士研究生招生报录统计</a><span>2026-09-15</span></li>
+      <li><a href="../info/1024/9304.htm">2024年与2025年硕士研究生招生报录统计</a><span>2026-09-15</span></li>
+    </ul>`;
+  assert.deepEqual(
+    parseOfficialList(oct2026Html, graduateSource, '2026-10-10T04:00:00.000Z').map((item) => item.title),
+    [
+      '硕士研究生自命题科目202401考试大纲',
+      '海甸校区2018室硕士研究生复试考场安排',
+      '2025年与2026年硕士研究生招生报录统计'
+    ]
+  );
+
+  const jul2027Html = `
+    <ul>
+      <li><a href="../info/1024/9401.htm">2028年接收推荐免试硕士研究生复试通知</a><span>2026-12-28</span></li>
+      <li><a href="../info/1024/9402.htm">硕士研究生复试名单公示</a><span>2026-12-28</span></li>
+    </ul>`;
+  assert.deepEqual(
+    parseOfficialList(jul2027Html, graduateSource, '2027-07-15T04:00:00.000Z').map((item) => item.title),
+    ['2028年接收推荐免试硕士研究生复试通知']
+  );
+});

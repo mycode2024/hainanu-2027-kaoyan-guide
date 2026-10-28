@@ -318,7 +318,7 @@
       ? allUpdates.filter((update) => activeNewIds.has(update.id))
       : allUpdates;
     const selectedUpdates = unreadSelection.filter((update) => {
-      const years = (update.title || '').match(/20\d{2}(?=\s*(?:年|级))/g) || [];
+      const years = (update.title || '').match(/(?<!\d)20\d{2}(?=\s*(?:年|级|届))/g) || [];
       const matchesYear = !filters.year || filters.year === 'all' ||
         (filters.year === '2027' && years.includes('2027')) ||
         (filters.year === 'history' && years.length > 0 && years.every(year => Number(year) < 2027)) ||
@@ -505,7 +505,7 @@
 
   // Admission-year badge for a notice: its label and whether it belongs to a previous cycle.
   function describeUpdateCycle(update) {
-    const admissionYears = [...new Set(update.title.match(/20\d{2}(?=\s*(?:年|级))/g) || [])];
+    const admissionYears = [...new Set(update.title.match(/(?<!\d)20\d{2}(?=\s*(?:年|级|届))/g) || [])];
     const isPreviousCycle = admissionYears.length > 0 && admissionYears.every((year) => Number(year) < 2027);
     const label = admissionYears.length
       ? `${admissionYears.join(' / ')} 招生${isPreviousCycle ? ' · 往年参考' : ''}`

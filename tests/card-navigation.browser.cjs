@@ -132,6 +132,21 @@ async function key(value) {
   assert.equal(await evaluate(`document.activeElement.closest('.guide-dialog') !== null`), true, 'resizing must not steal dialog focus');
   await close();
   assert.equal(await evaluate(`document.activeElement.matches('.hero-actions a:last-child')`), true, 'closing must restore focus to the moved opener');
+  await evaluate(`document.querySelector('[data-site-nav-toggle]').click(); document.querySelector('[data-site-nav-menu] a[href="/programs.html"]').click()`);
+  await until(`document.querySelector('.guide-dialog[open] .guide-panel[data-page="programs"]')`);
+  assert.equal(await evaluate(`document.querySelector('[data-site-nav-toggle]').getAttribute('aria-expanded')`), 'false', 'activating a mobile nav link must collapse the mobile menu');
+  await key('Escape');
+  await until(`!document.querySelector('.guide-dialog').open`);
+  assert.equal(await evaluate(`document.activeElement.matches('[data-site-nav-toggle]')`), true, 'closing a card opened from the collapsed mobile menu must restore focus to the nav toggle');
+  assert.equal(await evaluate(`(() => {
+    const link = document.createElement('a');
+    link.setAttribute('href', 'http://[::1');
+    document.body.append(link);
+    window.addEventListener('click', event => event.preventDefault(), { once: true });
+    link.click();
+    link.remove();
+    return document.querySelector('.guide-dialog').open;
+  })()`), false, 'malformed link hrefs must be ignored without throwing');
   // Changing to shorter content must resize continuously, including when a
   // second selection interrupts it. Selection itself remains synchronous.
   await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });

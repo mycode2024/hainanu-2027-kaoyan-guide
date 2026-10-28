@@ -1,7 +1,7 @@
 const os = require('node:os');
 const path = require('node:path');
 const { OFFICIAL_SOURCES } = require('../server.cjs');
-const { createRequestHandler } = require('./http-app.cjs');
+const { createRequestHandler, writeJson } = require('./http-app.cjs');
 const { createUpdateService, createFileCacheStore } = require('./update-service.cjs');
 
 function getVercelCachePath() {
@@ -38,8 +38,7 @@ function createVercelHandler(options = {}) {
       const url = new URL(request.url || '/', 'https://guide.invalid');
       const endpoint = url.searchParams.get('endpoint') || url.pathname.split('/').pop();
       if (!['updates', 'refresh', 'health'].includes(endpoint)) {
-        response.writeHead(404, { 'content-type': 'application/json; charset=utf-8' });
-        response.end(JSON.stringify({ error: 'Not found' }));
+        writeJson(response, 404, { error: 'Not found' });
         return;
       }
       if (!handleRequest) {
@@ -55,8 +54,7 @@ function createVercelHandler(options = {}) {
     } catch (error) {
       console.error('Vercel request failed:', error.message);
       if (!response.headersSent) {
-        response.writeHead(503, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
-        response.end(JSON.stringify({ error: '通知服务暂时不可用，请稍后重试。' }));
+        writeJson(response, 503, { error: '通知服务暂时不可用，请稍后重试。' });
       } else if (!response.writableEnded) response.end();
     }
   };

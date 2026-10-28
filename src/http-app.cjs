@@ -311,4 +311,16 @@ function createHttpServer(options) {
   return http.createServer(createRequestHandler(options));
 }
 
-module.exports = { createHttpServer, createRequestHandler };
+function createStaticServer(siteRoot) {
+  const state = { root: path.resolve(siteRoot) };
+  return http.createServer(async (request, response) => {
+    const parsed = parsePathname(request.url || '/');
+    if (parsed.message) {
+      writeText(response, parsed.status, parsed.message);
+      return;
+    }
+    await serveStaticFile(request, response, state, parsed.pathname);
+  });
+}
+
+module.exports = { createHttpServer, createRequestHandler, createStaticServer, writeJson };

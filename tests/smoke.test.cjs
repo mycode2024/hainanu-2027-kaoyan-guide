@@ -562,9 +562,35 @@ test('does not expose paths outside the site root', async (t) => {
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   t.after(() => new Promise((resolve) => server.close(resolve)));
 
-  const address = server.address();
-  const response = await fetch(`http://127.0.0.1:${address.port}/missing-file.txt`);
-  assert.equal(response.status, 404);
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const missing = await fetch(`${base}/missing-file.txt`);
+  assert.equal(missing.status, 404);
+  assert.equal(missing.headers.get('x-content-type-options'), 'nosniff');
+  assert.equal(missing.headers.get('cache-control'), 'no-store');
+
+  for (const internalPath of ['/package.json', '/server.cjs']) {
+    const internal = await fetch(`${base}${internalPath}`);
+    assert.equal(internal.status, 404, `${internalPath} must not be served publicly`);
+  }
+
+  const traversalStatus = await new Promise((resolve, reject) => {
+    require('node:http').get({
+      hostname: '127.0.0.1',
+      port: server.address().port,
+      path: '/%2e%2e/package.json',
+      headers: { connection: 'close' }
+    }, (res) => { res.resume(); resolve(res.statusCode); }).on('error', reject);
+  });
+  assert.equal(traversalStatus, 403);
+
+  const wrongMethod = await fetch(`${base}/`, { method: 'POST' });
+  assert.equal(wrongMethod.status, 405);
+  assert.equal(wrongMethod.headers.get('allow'), 'GET, HEAD');
+
+  const cleanRoute = await fetch(`${base}/programs`);
+  assert.equal(cleanRoute.status, 200);
+  assert.equal(cleanRoute.headers.get('content-type'), 'text/html; charset=utf-8');
+  assert.match(cleanRoute.headers.get('content-security-policy') || '', /default-src 'self'/);
 });
 
 test('the Windows launcher explicit port overrides an inherited PORT', {

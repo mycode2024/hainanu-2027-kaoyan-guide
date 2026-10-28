@@ -257,6 +257,9 @@ function installFakePage(options = {}) {
     selectorMap.set('[data-site-nav-menu]', elements.navMenu);
     selectorMap.set('[data-site-nav-toggle]', elements.navToggle);
   }
+  if (options.openDialog) {
+    selectorMap.set('dialog[open]', options.openDialog);
+  }
   const selectorGroups = new Map([
     ['[data-milestone-id]', options.milestones || []],
     ['.task-check[data-check-id]', checkboxes],
@@ -658,6 +661,23 @@ test('opens the mobile site navigation and closes it on Escape', async () => {
     page.document.dispatch('keydown', { key: 'Escape' });
     assert.equal(page.elements.navToggle.getAttribute('aria-expanded'), 'false');
     assert.equal(page.elements.navToggle.focusCalls, 1);
+  });
+});
+
+test('mobile site navigation closes on item activation and yields Escape while a modal dialog is open', async () => {
+  const openDialog = createFakeElement();
+  await withFakePage({ includeLiveConsole: false, includeNav: true, openDialog }, async (page) => {
+    page.elements.navToggle.dispatch('click');
+    assert.equal(page.elements.navToggle.getAttribute('aria-expanded'), 'true');
+
+    page.document.dispatch('keydown', { key: 'Escape' });
+    assert.equal(page.elements.navToggle.getAttribute('aria-expanded'), 'true', 'open modal dialog owns Escape');
+    assert.equal(page.elements.navToggle.focusCalls, 0);
+
+    const navLink = { closest: (selector) => (selector === 'a, button' ? navLink : null) };
+    page.elements.navMenu.dispatch('click', { target: navLink });
+    assert.equal(page.elements.navToggle.getAttribute('aria-expanded'), 'false');
+    assert.equal(page.elements.navMenu.classList.contains('is-open'), false);
   });
 });
 
@@ -1915,4 +1935,46 @@ test('describeUpdateCycle labels admission years and marks earlier cycles as ref
   assert.deepEqual(describeUpdateCycle({ title: '2026年与2027年招生衔接说明', date: '2026-09-20' }), { label: '2026 / 2027 招生', isPreviousCycle: false });
   assert.deepEqual(describeUpdateCycle({ title: '复试安排通知', date: '2025-03-10' }), { label: '往年发布 · 招生年份未注明', isPreviousCycle: false });
   assert.deepEqual(describeUpdateCycle({ title: '复试安排通知', date: '2026-03-10' }), { label: '招生年份未注明', isPreviousCycle: false });
+  assert.deepEqual(describeUpdateCycle({ title: '关于接收2027届本科毕业生推荐免试攻读硕士学位研究生的通知', date: '2026-09-20' }), { label: '2027 招生', isPreviousCycle: false });
+  assert.deepEqual(describeUpdateCycle({ title: '编号12025年通知汇总', date: '2026-09-20' }), { label: '招生年份未注明', isPreviousCycle: false });
+});
+
+test('triggers a one-time catch-up sync when the initial local snapshot is overdue and cancels it when hidden', async () => {
+  const overdueSnapshot = makeUpdatesPayload();
+  overdueSnapshot.freshness = {
+    state: 'overdue', ageMs: 2_100_000, isOverdue: true,
+    overdueSourceIds: [], worstSourceAgeMs: 2_100_000
+  };
+
+  await withFakePage({}, async (page) => {
+    page.settle(page.fetchCalls[0], overdueSnapshot);
+    await page.flush();
+    assert.equal(page.fetchCalls.length, 1);
+
+    page.runTimers(500);
+    assert.equal(page.fetchCalls.length, 2, 'local overdue first render should schedule a 500ms catch-up refresh');
+    assert.equal(page.fetchCalls[1].url, '/api/refresh');
+    assert.equal(page.fetchCalls[1].request.method, 'POST');
+
+    page.settle(page.fetchCalls[1], overdueSnapshot);
+    await page.flush();
+    page.runTimers(500);
+    assert.equal(page.fetchCalls.length, 2, 'catch-up refresh must only run once per panel');
+  });
+
+  await withFakePage({ hosting: 'vercel' }, async (page) => {
+    page.settle(page.fetchCalls[0], overdueSnapshot);
+    await page.flush();
+    page.runTimers(500);
+    assert.equal(page.fetchCalls.length, 1, 'cloud mode already awaits due refresh on GET and must not double-POST');
+  });
+
+  await withFakePage({}, async (page) => {
+    page.settle(page.fetchCalls[0], overdueSnapshot);
+    await page.flush();
+    page.document.visibilityState = 'hidden';
+    page.document.dispatch('visibilitychange');
+    page.runTimers(500);
+    assert.equal(page.fetchCalls.length, 1, 'hiding the page before 500ms must cancel the catch-up refresh');
+  });
 });

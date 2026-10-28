@@ -5,8 +5,22 @@ const { renderReviewDates } = require('./build-content-reviews.cjs');
 const root = path.resolve(__dirname, '..');
 const pages = ['index', 'programs', 'scores', 'preparation', 'timeline', 'application', 'materials', 'updates', 'sources'];
 
+function assertSafeOutputDirectory(target) {
+  const normalize = (value) => (process.platform === 'win32' ? value.toLowerCase() : value);
+  const normalizedTarget = normalize(target);
+  const normalizedRoot = normalize(root);
+  if (normalizedTarget === normalize(path.parse(target).root)
+    || normalizedTarget === normalizedRoot
+    || normalizedRoot.startsWith(`${normalizedTarget}${path.sep}`)) {
+    throw new Error(`Unsafe Vercel output directory: ${target}`);
+  }
+}
+
 async function build(outputDirectory = path.join(root, 'public')) {
-  await fs.mkdir(outputDirectory, { recursive: true });
+  const target = path.resolve(outputDirectory);
+  assertSafeOutputDirectory(target);
+  await fs.rm(target, { recursive: true, force: true });
+  await fs.mkdir(target, { recursive: true });
   for (const page of pages) {
     const filename = `${page}.html`;
     const html = renderReviewDates(await fs.readFile(path.join(root, filename), 'utf8'), page)
@@ -19,10 +33,10 @@ async function build(outputDirectory = path.join(root, 'public')) {
       .replaceAll('本地服务', '在线服务')
       .replaceAll('本地 Node.js 服务', '在线通知服务')
       .replaceAll('本地更新服务', '在线通知服务');
-    await fs.writeFile(path.join(outputDirectory, filename), html, 'utf8');
+    await fs.writeFile(path.join(target, filename), html, 'utf8');
   }
   for (const filename of ['guide-core.js', 'guide-dom.js', 'guide-notices.js', 'app.js', 'styles.css']) {
-    await fs.copyFile(path.join(root, filename), path.join(outputDirectory, filename));
+    await fs.copyFile(path.join(root, filename), path.join(target, filename));
   }
 }
 

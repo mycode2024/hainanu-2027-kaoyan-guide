@@ -334,6 +334,7 @@
       this._renderedUpdatesKey = null;
       this._acknowledgedIds = new Set();
       this._pollTimer = null;
+      this._overdueRetryTimer = null;
       this._activeController = null;
       this._requestInFlight = false;
       this._resumePending = false;
@@ -387,6 +388,8 @@
     _stopPolling() {
       if (this._pollTimer) window.clearTimeout(this._pollTimer);
       this._pollTimer = null;
+      if (this._overdueRetryTimer) window.clearTimeout(this._overdueRetryTimer);
+      this._overdueRetryTimer = null;
       this._activeController?.abort();
     }
 
@@ -554,8 +557,12 @@
       this._renderStatusLines(payload, payload.sources.filter((source) => source.ok).length);
       this._renderSources(payload.sources, payload.refreshIntervalMs);
       this._renderCurrentUpdates();
-      if (wasFirstRender && payload.freshness.isOverdue && !this._requestInFlight) {
-        window.setTimeout(() => this._loadUpdates(true), 500);
+      if (wasFirstRender && !this._isCloud && payload.freshness.isOverdue) {
+        if (this._overdueRetryTimer) window.clearTimeout(this._overdueRetryTimer);
+        this._overdueRetryTimer = window.setTimeout(() => {
+          this._overdueRetryTimer = null;
+          if (!this._isInactive()) this._loadUpdates(true);
+        }, 500);
       }
     }
 

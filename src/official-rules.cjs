@@ -41,9 +41,11 @@ function categorizeTitle(title, source) {
   return '招生动态';
 }
 
+const ADMISSION_YEAR_PATTERN = /(?<!\d)20\d{2}(?=\s*(?:年|级|届))/g;
+
 function isRelevantAdmissionCycle(title, date, checkedAt, calendar = getShanghaiYearAndMonth(checkedAt)) {
-  if (/2027\s*(?:年|级)/.test(title)) return true;
-  const titleYear = title.match(/(?:20\d{2})年?/);
+  if (/(?<!\d)2027\s*(?:年|级|届)/.test(title)) return true;
+  const mentionedYears = [...String(title || '').matchAll(ADMISSION_YEAR_PATTERN)].map((match) => Number(match[0]));
   const pubYear = date ? Number(date.slice(0, 4)) : null;
   const checkedDate = new Date(checkedAt);
   const currentYear = calendar?.year;
@@ -52,9 +54,8 @@ function isRelevantAdmissionCycle(title, date, checkedAt, calendar = getShanghai
   // The target admission year: current year + 1 (e.g., in 2026 we target 2027 cycle)
   const targetYear = currentYear + 1;
   // If title explicitly mentions a year, only keep target year and one year prior
-  if (titleYear) {
-    const mentioned = Number(titleYear[0].replace('年', ''));
-    if (Number.isFinite(mentioned) && mentioned < targetYear - 1) return false;
+  if (mentionedYears.length > 0 && mentionedYears.every((year) => year < targetYear - 1)) {
+    return false;
   }
   // Filter by publication date: discard items published > 18 months ago
   if (Number.isFinite(pubYear) && date) {
@@ -67,7 +68,7 @@ function isRelevantAdmissionCycle(title, date, checkedAt, calendar = getShanghai
   // In the latter half of the year (Jul+), old-cycle operational notices are stale
   if (currentMonth >= 7 && Number.isFinite(pubYear)) {
     const isOldCycleOperational = /复试|调剂|拟录取|录取通知书|调档/.test(title)
-      && !/\b20\d{2}\b/.test(title.replace(String(targetYear), '').replace(String(targetYear - 1), ''));
+      && !mentionedYears.some((year) => year >= targetYear);
     if (isOldCycleOperational && pubYear < currentYear) return false;
   }
   return true;
