@@ -125,12 +125,30 @@ async function key(value) {
         'the collapsed mobile navigation must lead directly to the task card');
     }
   }
+  await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 650, deviceScaleFactor: 1, mobile: false });
+  const cardOpacities = await evaluate(`(async () => {
+    const card = document.querySelector('.page-map-card:last-child');
+    const top = card.offsetTop + card.offsetParent.getBoundingClientRect().top + scrollY;
+    const start = top - innerHeight + card.offsetHeight * .2;
+    const samples = [];
+    for (const y of [start, start + card.offsetHeight, start]) {
+      scrollTo({ top: y, behavior: 'instant' });
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      samples.push(Number(getComputedStyle(card).opacity));
+    }
+    return samples;
+  })()`);
+  assert.ok(cardOpacities[0] < .85 && cardOpacities[1] > .99 && Math.abs(cardOpacities[2] - cardOpacities[0]) < .02,
+    `scrolling into and back out of view must scrub the card reveal: ${cardOpacities}`);
+  await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
+  assert.equal(await evaluate(`getComputedStyle(document.querySelector('.page-map-card:last-child')).opacity`), '1');
+  await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }] });
   for (const width of [390, 1440]) {
     await send('Emulation.setDeviceMetricsOverride', { width, height: 900, deviceScaleFactor: 1, mobile: false });
     const distance = await evaluate(`(async () => {
       const card = document.querySelector('.page-map-card');
-      await Promise.all(card.getAnimations().map(animation => animation.finished));
       card.scrollIntoView({ block: 'center', behavior: 'instant' });
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
       card.click();
       const dialog = document.querySelector('.guide-dialog');
       const entrance = dialog.getAnimations().find(animation => animation.animationName === 'dialog-in');
