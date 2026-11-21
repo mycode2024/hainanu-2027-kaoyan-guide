@@ -5,22 +5,34 @@ const { renderReviewDates } = require('./build-content-reviews.cjs');
 const root = path.resolve(__dirname, '..');
 const pages = ['index', 'programs', 'scores', 'preparation', 'timeline', 'application', 'materials', 'updates', 'sources'];
 
-function assertSafeOutputDirectory(target) {
-  const normalize = (value) => (process.platform === 'win32' ? value.toLowerCase() : value);
-  const normalizedTarget = normalize(target);
-  const normalizedRoot = normalize(root);
-  if (normalizedTarget === normalize(path.parse(target).root)
-    || normalizedTarget === normalizedRoot
-    || normalizedRoot.startsWith(`${normalizedTarget}${path.sep}`)) {
-    throw new Error(`Unsafe Vercel output directory: ${target}`);
+async function prepareOutputDirectory(target) {
+  const unsafe = new Error(`Unsafe Vercel output directory: ${target}`);
+  try {
+    await fs.mkdir(target, { recursive: true });
+  } catch (error) {
+    if (error.code === 'EEXIST') throw unsafe;
+    throw error;
+  }
+  if (!(await fs.lstat(target)).isDirectory()) throw unsafe;
+  const realTarget = await fs.realpath(target);
+  const toProject = path.relative(realTarget, await fs.realpath(root));
+  const projectIsInside = !path.isAbsolute(toProject) && toProject !== '..' && !toProject.startsWith(`..${path.sep}`);
+  if (realTarget === path.parse(realTarget).root || projectIsInside) throw unsafe;
+  const entries = await fs.readdir(target, { withFileTypes: true });
+  if (!entries.length) return;
+  // Existing builds (including older releases) identify themselves in the generated homepage.
+  if (!entries.some(entry => entry.name === 'index.html' && entry.isFile())) throw unsafe;
+  const index = await fs.readFile(path.join(target, 'index.html'), 'utf8');
+  if (!index.includes('<html lang="zh-CN" data-product="hainanu-2027-kaoyan-guide">')
+    || !index.includes('<body data-hosting="vercel" data-page="home">')) throw unsafe;
+  for (const entry of entries) {
+    await fs.rm(path.join(target, entry.name), { recursive: true, force: true });
   }
 }
 
 async function build(outputDirectory = path.join(root, 'public')) {
   const target = path.resolve(outputDirectory);
-  assertSafeOutputDirectory(target);
-  await fs.rm(target, { recursive: true, force: true });
-  await fs.mkdir(target, { recursive: true });
+  await prepareOutputDirectory(target);
   for (const page of pages) {
     const filename = `${page}.html`;
     const html = renderReviewDates(await fs.readFile(path.join(root, filename), 'utf8'), page)

@@ -13,6 +13,21 @@ const projectRoot = path.resolve(__dirname, '..');
 const forbiddenTestPorts = new Set([4173]);
 const testCreatedPidsByEntry = new Map();
 
+test('browser runner reports early exit and removes its temporary profile', t => {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'hnu-runner-test-'));
+  t.after(() => fs.rmSync(temp, { recursive: true, force: true }));
+  // Node rejects Chrome's flags and exits before publishing a DevTools URL.
+  const result = require('node:child_process').spawnSync(process.execPath,
+    [path.join(projectRoot, 'tests/card-navigation.browser.cjs')], {
+      env: { ...process.env, CHROME_PATH: process.execPath, TMPDIR: temp, TMP: temp, TEMP: temp },
+      encoding: 'utf8', timeout: 10_000
+    });
+  assert.ifError(result.error);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /Chrome exited before/);
+  assert.deepEqual(fs.readdirSync(temp).filter(name => name.startsWith('hnu-cards-')), []);
+});
+
 const testServerSource = String.raw`
 const http = require('node:http');
 const port = Number(process.env.PORT);

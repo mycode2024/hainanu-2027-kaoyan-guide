@@ -739,7 +739,9 @@
       if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
         window.addEventListener('storage', (event) => this._onStorageEvent(event));
       }
-      document.addEventListener('guide-panel-change', () => this._onVisibilityOrPanelChange(true));
+      if (this._root !== document) {
+        document.addEventListener('guide-panel-change', () => this._onVisibilityOrPanelChange(true));
+      }
     }
 
     _onStorageEvent(event) {

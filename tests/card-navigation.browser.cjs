@@ -13,7 +13,7 @@ const snapshot = { status: 'fresh', lastSuccessAt: new Date().toISOString(), sou
     date: '2026-10-13', url: `https://gs.hainanu.edu.cn/info/qa-${i}.htm`, source: '海南大学研究生院', sourceId: 'hnu', category: '报名确认' })) };
 const server = createHttpServer({ siteRoot: root, updateService: { getSnapshot: () => snapshot, refresh: async () => snapshot } });
 const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'hnu-cards-'));
-let child, ws, session, id = 0;
+let child, childClosed, ws, session, id = 0;
 const pending = new Map(), errors = [], report = [];
 function send(method, params = {}, scoped = true) {
   return new Promise((resolve, reject) => {
@@ -67,13 +67,25 @@ async function key(value) {
 }
 (async () => {
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-  const endpoint = await new Promise((resolve, reject) => {
-    child = spawn(process.env.CHROME_PATH || 'C:/Program Files/Google/Chrome/Application/chrome.exe',
+  child = spawn(process.env.CHROME_PATH || 'C:/Program Files/Google/Chrome/Application/chrome.exe',
       ['--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check', '--remote-debugging-port=0', `--user-data-dir=${profile}`, 'about:blank'],
       { windowsHide: true, stdio: ['ignore', 'ignore', 'pipe'] });
+  childClosed = new Promise(resolve => child.once('close', resolve));
+  let timer, onData;
+  const endpoint = await new Promise((resolve, reject) => {
     let stderr = '';
+    timer = setTimeout(() => reject(new Error('Timed out waiting for Chrome DevTools')), 15_000);
     child.once('error', reject);
-    child.stderr.on('data', data => { stderr += data; const match = stderr.match(/DevTools listening on (ws:\/\/\S+)/); if (match) resolve(match[1]); });
+    childClosed.then(code => reject(new Error(`Chrome exited before DevTools was ready (code ${code})`)));
+    onData = data => {
+      stderr = (stderr + data).slice(-8192);
+      const match = stderr.match(/DevTools listening on (ws:\/\/\S+)\s/);
+      if (match) resolve(match[1]);
+    };
+    child.stderr.on('data', onData);
+  }).finally(() => {
+    clearTimeout(timer);
+    child.stderr.off('data', onData);
   });
   ws = new WebSocket(endpoint);
   await new Promise((resolve, reject) => { ws.onopen = resolve; ws.onerror = reject; });
@@ -556,7 +568,10 @@ async function key(value) {
   fs.writeFileSync(path.join(out, 'report.json'), JSON.stringify(report, null, 2));
   console.log(`PASS: ${report.length} desktop/mobile panels plus narrow/enlarged-text registration and materials; content fit, URL, scroll, focus, progress, filters, Escape, deep links, precise Beijing deadlines and mobile task visibility.`);
 })().catch(error => { console.error(error); process.exitCode = 1; }).finally(async () => {
-  if (ws?.readyState === WebSocket.OPEN) { await send('Browser.close', {}, false).catch(() => {}); ws.close(); }
-  child?.kill(); server.close(); server.closeAllConnections();
+  if (ws && ws.readyState === WebSocket.OPEN) { await send('Browser.close', {}, false).catch(() => {}); ws.close(); }
+  if (child?.pid && child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+  server.close(); server.closeAllConnections();
   for (const task of pending.values()) clearTimeout(task.timer);
-});
+  await childClosed;
+  await fs.promises.rm(profile, { recursive: true, force: true, maxRetries: 8, retryDelay: 150 });
+}).catch(error => { console.error(error); process.exitCode = 1; });

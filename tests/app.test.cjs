@@ -1,6 +1,18 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
+test('opening ordinary cards leaves homepage notification polling on its normal schedule', async () => {
+  await withFakePage({}, async page => {
+    page.document.dispatch('guide-panel-change');
+    page.settle(page.fetchCalls[0]);
+    await page.flush();
+    page.document.dispatch('guide-panel-change');
+    assert.equal(page.fetchCalls.length, 1);
+    page.runTimers(60_000);
+    assert.equal(page.fetchCalls.length, 2);
+  });
+});
+
 test('rejects impossible publication dates and excludes them from new-notice counts', () => {
   const { normalizeUpdatesPayload } = loadApp();
   const dates = ['2026-02-30', '2026-02-29', '2026-04-31', '2026-00-10', '2026-13-01', '2028-02-29', '2026-09-27'];

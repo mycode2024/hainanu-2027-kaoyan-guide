@@ -127,6 +127,12 @@ test('Vercel static build publishes only website files with truthful cloud copy'
   await assert.rejects(() => build(root), /Unsafe Vercel output directory/);
   const output = await fs.mkdtemp(path.join(os.tmpdir(), 'hnu-public-test-'));
   t.after(() => fs.rm(output, { recursive: true, force: true }));
+  const unrelated = path.join(output, 'keep.txt');
+  await fs.writeFile(unrelated, 'keep');
+  await assert.rejects(() => build(output), /Unsafe Vercel output directory/);
+  assert.equal(await fs.readFile(unrelated, 'utf8'), 'keep');
+  await fs.unlink(unrelated);
+  await build(output);
   await fs.writeFile(path.join(output, 'stale-legacy.html'), 'stale', 'utf8');
   await fs.mkdir(path.join(output, 'stale-dir'));
   await fs.writeFile(path.join(output, 'stale-dir', 'old.js'), 'stale', 'utf8');
