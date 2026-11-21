@@ -16,12 +16,12 @@
   --max: 1200px;
   --motion-fast: 160ms;
   --motion-base: 240ms;
-  --motion-slow: 320ms;
+  --motion-slow: 460ms;
   --ease-standard: cubic-bezier(.4, 0, .2, 1);
   --ease-out: cubic-bezier(.22, 1, .36, 1);
   --ease-in: cubic-bezier(.4, .14, 1, 1);
   --ease-emphasized: cubic-bezier(.2, 0, 0, 1);
-  --dialog-exit-ms: 200ms;
+  --dialog-exit-ms: 260ms;
 }
 
 *, *::before, *::after { box-sizing: border-box; }
@@ -1123,7 +1123,7 @@ main { min-width: 0; }
   .guide-dialog { width: min(1020px, calc(100vw - 64px)); max-width: none; height: min(820px, calc(100dvh - 72px)); max-height: none; margin: auto; padding: 0; overflow: hidden; border: 1px solid #d6e0d8; border-radius: 24px; background: #fbfaf5; color: var(--ink); box-shadow: 0 32px 100px #061e3b52; }
   /* Release the entrance transform so fixed filter menus use viewport coordinates. */
   .guide-dialog[open] { display: flex; flex-direction: column; animation: dialog-in var(--motion-slow) var(--ease-out) backwards; }
-  .guide-dialog[open]::backdrop { animation: backdrop-in 280ms ease-out both; }
+  .guide-dialog[open]::backdrop { animation: backdrop-in 340ms var(--ease-out) both; }
   .guide-dialog.guide-closing { animation: dialog-out var(--dialog-exit-ms) var(--ease-in) both; pointer-events: none; }
   .guide-dialog.guide-closing::backdrop { animation: backdrop-out var(--dialog-exit-ms) ease-in both; }
   .guide-dialog::backdrop { background: #132c3b88; backdrop-filter: blur(6px); }
@@ -1143,7 +1143,12 @@ main { min-width: 0; }
   .guide-loading, .guide-error { margin: 60px auto; max-width: 420px; text-align: center; }
   .guide-loading { animation: panel-in .2s ease .12s backwards; }
   .guide-error .text-link { display: block; margin-top: 18px; }
-  .guide-panel { --page-accent: #176b65; --page-tint: #eaf3ee; --page-dark: #123f42; --page-light: #bce7d7; min-width: 0; animation: panel-in 280ms var(--ease-out) 60ms backwards; }
+  .guide-panel { --page-accent: #176b65; --page-tint: #eaf3ee; --page-dark: #123f42; --page-light: #bce7d7; min-width: 0; animation: panel-in 320ms var(--ease-out) backwards; }
+  [data-panel-motion="forward"] > .guide-panel { --panel-shift: 24px; }
+  [data-panel-motion="backward"] > .guide-panel { --panel-shift: -24px; }
+  /* A transformed ancestor would shift the notice panel's fixed-position listboxes. */
+  [data-panel-motion="forward"] > .guide-panel:not([data-page="updates"]),
+  [data-panel-motion="backward"] > .guide-panel:not([data-page="updates"]) { animation-name: panel-slide; }
   .guide-panel[data-page="scores"] { --page-accent: #365e96; --page-tint: #edf1f9; --page-dark: #213650; --page-light: #c4d9fa; }
   .guide-panel[data-page="preparation"] { --page-accent: #725180; --page-tint: #f3edf5; --page-dark: #41334b; --page-light: #e1cbe9; }
   .guide-panel[data-page="timeline"] { --page-accent: #856222; --page-tint: #f7f0df; --page-dark: #493e29; --page-light: #efdaa5; }
@@ -1180,10 +1185,10 @@ main { min-width: 0; }
   .reading-panes .apply-steps > li > div, .reading-panes .checklist-entry, .reading-panes .checklist-item > span { min-width: 0; }
   .reading-panes .checklist-item { grid-template-columns: 26px minmax(0, 1fr); }
   .reading-panes .form-blueprint { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  [data-motion-direction="forward"] { --content-shift: 10px; }
-  [data-motion-direction="backward"] { --content-shift: -10px; }
+  [data-motion-direction="forward"] { --content-shift: 20px; }
+  [data-motion-direction="backward"] { --content-shift: -20px; }
   .content-resizing { overflow: clip; overflow-anchor: none; }
-  .reading-pane:not([hidden]) { animation: pane-in 260ms var(--ease-out) 120ms backwards; }
+  .reading-pane:not([hidden]) { animation: pane-in 320ms var(--ease-out) backwards; }
   .reading-pane > :first-child { margin-top: 0; }
   .reading-context { margin-top: 12px; font-size: .82rem; color: #6d776f; }
   .reading-context summary { width: fit-content; cursor: pointer; text-underline-offset: 4px; }
@@ -1226,12 +1231,13 @@ main { min-width: 0; }
   .step-controls button { min-height: 40px; font-size: .8rem; }
   .step-controls button:disabled { opacity: .4; cursor: default; }
   .guide-panel [hidden], .guide-dialog [hidden], .timeline-compact [hidden], .reading-pane[hidden] { display: none !important; }
-  @keyframes dialog-in { from { opacity: var(--dialog-enter-opacity, 0); transform: var(--dialog-enter-transform, translateY(20px) scale(.97)); } }
-  @keyframes dialog-out { from { opacity: var(--dialog-exit-opacity, 1); transform: var(--dialog-exit-transform, none); } to { opacity: 0; transform: translateY(8px) scale(.985); } }
+  @keyframes dialog-in { from { opacity: var(--dialog-enter-opacity, 0); transform: var(--dialog-enter-transform, var(--card-origin, translateY(16px) scale(.96))); } }
+  @keyframes dialog-out { from { opacity: var(--dialog-exit-opacity, 1); transform: var(--dialog-exit-transform, none); } to { opacity: 0; transform: var(--card-origin, translateY(10px) scale(.98)); } }
   @keyframes backdrop-in { from { opacity: var(--backdrop-enter-opacity, 0); } }
   @keyframes backdrop-out { from { opacity: var(--backdrop-exit-opacity, 1); } to { opacity: 0; } }
   @keyframes panel-in { from { opacity: 0; } }
-  @keyframes pane-in { from { opacity: 0; transform: translateX(var(--content-shift, 12px)); } }
+  @keyframes panel-slide { from { opacity: 0; transform: translateX(var(--panel-shift)); } }
+  @keyframes pane-in { from { opacity: .28; transform: translateX(var(--content-shift, 0px)); } }
 }
 @media screen and (max-width: 900px) {
   body[data-page="home"] .page-map { grid-template-columns: repeat(2, minmax(0, 1fr)); }

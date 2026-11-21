@@ -572,6 +572,29 @@
 
     _announceChange() { document.dispatchEvent(new Event('guide-panel-change')); }
 
+    // Measure the untransformed modal box, even when reversing an entrance in progress.
+    _setCardOrigin() {
+      const dialog = this._dialog;
+      const card = this._opener?.closest('.page-map-card');
+      const rect = card?.getBoundingClientRect();
+      if (!rect?.width || !rect.height || rect.bottom <= 0 || rect.top >= window.innerHeight ||
+          rect.right <= 0 || rect.left >= window.innerWidth) {
+        dialog.style.removeProperty('--card-origin');
+        return;
+      }
+      const width = dialog.offsetWidth;
+      const height = dialog.offsetHeight;
+      const scale = Math.min(.85, rect.width / width, rect.height / height);
+      // A partially visible card must still open with the entire modal inside the viewport.
+      const halfWidth = width * scale / 2;
+      const halfHeight = height * scale / 2;
+      const centerX = Math.max(halfWidth, Math.min(window.innerWidth - halfWidth, rect.left + rect.width / 2));
+      const centerY = Math.max(halfHeight, Math.min(window.innerHeight - halfHeight, rect.top + rect.height / 2));
+      const x = centerX - (dialog.offsetLeft + width / 2);
+      const y = centerY - (dialog.offsetTop + height / 2);
+      dialog.style.setProperty('--card-origin', `translate(${x}px, ${y}px) scale(${scale})`);
+    }
+
     _cleanup() {
       this._revision += 1; this._controller?.abort();
       ['enter', 'exit'].forEach(phase => {
@@ -613,6 +636,7 @@
       dialog.style.setProperty('--dialog-exit-opacity', style.opacity);
       dialog.style.setProperty('--dialog-exit-transform', style.transform);
       dialog.style.setProperty('--backdrop-exit-opacity', window.getComputedStyle(dialog, '::backdrop').opacity);
+      this._setCardOrigin();
       dialog.classList.add('guide-closing');
       this._announceChange();
       this._closeTimer = window.setTimeout(() => {
@@ -626,6 +650,8 @@
 
     // Shows the loading state and opens the dialog before the card content is ready.
     _beginShow(destination, remember) {
+      this._viewport.dataset.panelMotion = this._active && this._active.key !== destination.key
+        ? (remember ? 'forward' : 'backward') : 'open';
       if (remember && this._active && this._active.key !== destination.key) this._trail.push(this._active);
       this._active = destination;
       this._back.hidden = this._trail.length === 0;
@@ -635,6 +661,7 @@
       if (!this._dialog.open) {
         document.documentElement.classList.add('guide-dialog-open');
         this._dialog.showModal();
+        this._setCardOrigin();
       }
       this._close.focus({ preventScroll: true });
       this._announceChange();

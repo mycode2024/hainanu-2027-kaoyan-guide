@@ -125,6 +125,27 @@ async function key(value) {
         'the collapsed mobile navigation must lead directly to the task card');
     }
   }
+  for (const width of [390, 1440]) {
+    await send('Emulation.setDeviceMetricsOverride', { width, height: 900, deviceScaleFactor: 1, mobile: false });
+    const distance = await evaluate(`(async () => {
+      const card = document.querySelector('.page-map-card');
+      await Promise.all(card.getAnimations().map(animation => animation.finished));
+      card.scrollIntoView({ block: 'center', behavior: 'instant' });
+      card.click();
+      const dialog = document.querySelector('.guide-dialog');
+      const entrance = dialog.getAnimations().find(animation => animation.animationName === 'dialog-in');
+      entrance.pause();
+      entrance.currentTime = 0;
+      const opening = dialog.getBoundingClientRect();
+      const source = card.getBoundingClientRect();
+      entrance.play();
+      return Math.hypot(opening.x + opening.width / 2 - source.x - source.width / 2,
+        opening.y + opening.height / 2 - source.y - source.height / 2);
+    })()`);
+    assert.ok(distance < 2, `modal must expand from its card at ${width}px (offset ${distance}px)`);
+    await close();
+    await evaluate(`window.scrollTo({ top: 0, behavior: 'instant' })`);
+  }
   // Crossing the breakpoint must preserve focus in either group and keep the
   // same dashboard nodes (and their event listeners), including with a card open.
   for (const selector of ['.stage-actions a', '#reset-progress', '.hero-actions a:first-child', '.hero-actions a:last-child']) {
