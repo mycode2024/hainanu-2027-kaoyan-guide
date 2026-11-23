@@ -1427,3 +1427,79 @@ main { min-width: 0; }
   html { scroll-behavior: auto; }
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation: none !important; }
 }
+
+/* Continuous editorial layout shared by the full pages and their reading views. */
+@media screen {
+  html body {
+    --ink: #1d1d1f; --ink-soft: #55555a; --paper: #fff; --line: #d2d2d7;
+    --deep: #242426; --teal: #0066cc; --mist: #f5f5f7; --shadow: none;
+    color: var(--ink); background: white;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  }
+  body[data-page], body .guide-panel[data-page] {
+    --page-accent: #0066cc; --page-dark: #242426; --page-light: #c7def8; --page-tint: #f5f5f7;
+  }
+  body .site-header { background: #1d1d1f; }
+  .site-header::before, .site-header::after, body::after { display: none; }
+  body .site-nav { border-color: #49494d; }
+  .site-header .brand-mark { color: white; background: transparent; border: 0; }
+  .site-header .site-nav-link[aria-current="page"] { color: white; background: #38383b; }
+  body[data-page="home"] .hero-shell { display: block; padding-block: 0; }
+  .hero-copy { text-align: center; padding: clamp(56px, 8vw, 110px) 0; }
+  body[data-page="home"] .hero-copy h1, .site-header .page-hero h1 {
+    max-width: none;
+    font-family: inherit; font-size: clamp(2rem, 5.5vw, 5rem); font-weight: 650; line-height: 1.18; letter-spacing: -.045em;
+  }
+  .site-header .hero-copy h1 em { color: #bcbcc2; }
+  .hero-copy .eyebrow, .hero-copy .hero-actions { justify-content: center; }
+  body[data-page="home"] .hero-lead { max-width: 42em; margin: 22px auto 28px; color: #d2d2d7; }
+  .hero-copy .button { border-radius: 999px; }
+  .hero-copy .button-primary { background: #0071e3; color: white; border-color: transparent; }
+  body[data-page="home"] .status-panel, .site-header .page-progress {
+    border: 0; border-radius: 0; background: #f5f5f7; color: #1d1d1f; box-shadow: none;
+  }
+  body[data-page="home"] .status-panel { width: 100%; max-width: none; padding: 32px clamp(18px, 7vw, 96px); }
+  .site-header .home-reminders > * { background: transparent; border: 0; border-radius: 0; }
+  body[data-page="home"] .home-intro { padding-block: clamp(48px, 7vw, 90px); }
+  body[data-page="home"] .home-intro h2 { font-size: clamp(2rem, 4vw, 3.5rem); letter-spacing: -.04em; }
+  body[data-page="home"] .page-map { display: block; }
+  body[data-page="home"] .page-map .page-map-card:nth-child(n) {
+    display: grid; grid-template-columns: minmax(9em, .8fr) minmax(12em, 1.3fr) auto;
+    align-items: center; gap: 18px; padding: 24px 0; margin: 0;
+    border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: white;
+    color: var(--ink); box-shadow: none; transform: none;
+  }
+  body[data-page="home"] .page-map .page-map-card > span { display: none; }
+  body[data-page="home"] .page-map .page-map-card:nth-child(n) > strong { font-size: 1.35rem; margin: 0; }
+  body[data-page="home"] .page-map .page-map-card p { margin: 0; color: var(--ink-soft); font-size: .98rem; }
+  body[data-page="home"] .page-map .page-map-card em { color: #0066cc; font-size: .9rem; }
+  .page-map .page-map-card:hover strong { text-decoration: underline; text-underline-offset: 4px; }
+  body :is(.program-grid,.exam-layout,.risk-grid,.checklist-grid,.timeline-compact,.score-distributions) { grid-template-columns: minmax(0,1fr); gap: 0; }
+  body :is(.program-card,.exam-card,.risk-grid article,.checklist-entry,.checklist-item,.timeline-detail,.timeline-body,.timeline-compact .timeline-item,.apply-steps > li,.source-list > li,.score-distribution,.score-details,.prep-calendar,.review-deadlines,.page-toc,.contact-card,.critical-difference,.live-updates-console,.consultation-note,.special-note,.truth-banner,.score-table-wrap,.score-overview > *,.form-blueprint > *) {
+    border: 0; border-bottom: 1px solid var(--line); border-radius: 0; box-shadow: none;
+  }
+  body :is(.program-card,.risk-grid article,.checklist-entry,.checklist-item,.timeline-detail,.timeline-compact .timeline-item,.apply-steps > li,.score-distribution,.score-details) {
+    background: white; padding-block: 22px; padding-inline: 0;
+  }
+  body .timeline-compact .timeline-item { flex-direction: row; align-items: baseline; }
+  .timeline-compact .timeline-date { flex: 0 0 30%; }
+  body .timeline-compact .timeline-item.is-current { background: #f5f5f7; border-color: #86868b; }
+  body .guide-dialog, body .guide-dialog-header { background: white; }
+  body .reading-tabs { background: #f5f5f7; border: 0; border-radius: 0; }
+  @media (max-width: 720px) {
+    body[data-page="home"] .page-map .page-map-card:nth-child(n) { grid-template-columns: 1fr; gap: 6px; padding-block: 20px; }
+    .hero-copy .hero-actions { flex-wrap: wrap; }
+  }
+}
+@media screen {
+  body .hero-shell .status-panel {
+    box-shadow: 0 0 0 100vmax #f5f5f7;
+    clip-path: inset(0 -100vmax);
+  }
+  body :is(.exam-days div,.formula-stack div,.score-method,.subject-row > *,.form-blueprint div,.reading-context p,.deadline-notice) {
+    border-radius: 0;
+  }
+  body .score-overview { gap: 0; border-block: 1px solid var(--line); }
+  body .score-overview > div { background: transparent; border: 0; }
+  body .guide-panel :is(.truth-banner,.consultation-note) { background: #f5f5f7; border-radius: 0; }
+}
